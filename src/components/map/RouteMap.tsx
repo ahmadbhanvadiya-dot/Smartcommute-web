@@ -13,6 +13,8 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+import type { BackendRoute } from "@/lib/backend-route";
+
 interface LocationPoint {
   lat: number;
   lon: number;
@@ -32,6 +34,13 @@ interface RouteMapProps {
     latitude: number;
     longitude: number;
   };
+
+  /**
+   * Selected route returned by the SmartCommute backend.
+   * When available, the map also shows the nearest GTFS
+   * boarding and destination stops.
+   */
+  selectedRoute?: BackendRoute | null;
 }
 
 interface RouteData {
@@ -158,6 +167,48 @@ const startIcon = new L.Icon({
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   shadowSize: [41, 41],
+});
+
+const boardingStopIcon = L.divIcon({
+  className: "smartcommute-map-marker",
+  html: `
+    <div style="
+      width: 36px;
+      height: 36px;
+      border-radius: 9999px;
+      background: #16a34a;
+      border: 3px solid white;
+      box-shadow: 0 3px 10px rgba(0,0,0,.28);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    ">🚌</div>
+  `,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+  popupAnchor: [0, -18],
+});
+
+const destinationStopIcon = L.divIcon({
+  className: "smartcommute-map-marker",
+  html: `
+    <div style="
+      width: 36px;
+      height: 36px;
+      border-radius: 9999px;
+      background: #f59e0b;
+      border: 3px solid white;
+      box-shadow: 0 3px 10px rgba(0,0,0,.28);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    ">🚌</div>
+  `,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+  popupAnchor: [0, -18],
 });
 
 /*
@@ -419,6 +470,7 @@ export default function RouteMap({
   to,
   fromCoordinates,
   toCoordinates,
+  selectedRoute,
 }: RouteMapProps) {
   const [start, setStart] =
     useState<LocationPoint | null>(null);
@@ -533,6 +585,9 @@ export default function RouteMap({
     fromCoordinates?.longitude,
     toCoordinates?.latitude,
     toCoordinates?.longitude,
+    selectedRoute?.trip_id,
+    selectedRoute?.origin?.stop_id,
+    selectedRoute?.destination?.stop_id,
   ]);
 
   /*
@@ -546,6 +601,52 @@ export default function RouteMap({
 
   const routePoints =
     route?.coordinates ?? [];
+
+  /*
+   * SmartCommute transit stops.
+   *
+   * These come directly from the selected backend route and
+   * represent the GTFS boarding and destination stops.
+   */
+  const boardingStop = selectedRoute?.origin
+    ? {
+        lat: Number(selectedRoute.origin.latitude),
+        lon: Number(selectedRoute.origin.longitude),
+        displayName: selectedRoute.origin.stop_name,
+      }
+    : null;
+
+  const destinationStop = selectedRoute?.destination
+    ? {
+        lat: Number(selectedRoute.destination.latitude),
+        lon: Number(selectedRoute.destination.longitude),
+        displayName: selectedRoute.destination.stop_name,
+      }
+    : null;
+
+  const actualStartPoint: [number, number] | null =
+    start ? [start.lat, start.lon] : null;
+
+  const actualEndPoint: [number, number] | null =
+    end ? [end.lat, end.lon] : null;
+
+  const boardingPoint: [number, number] | null =
+    boardingStop
+      ? [boardingStop.lat, boardingStop.lon]
+      : null;
+
+  const destinationStopPoint: [number, number] | null =
+    destinationStop
+      ? [destinationStop.lat, destinationStop.lon]
+      : null;
+
+  const mapFitPoints: [number, number][] = [
+    ...(routePoints.length > 0 ? routePoints : []),
+    ...(actualStartPoint ? [actualStartPoint] : []),
+    ...(actualEndPoint ? [actualEndPoint] : []),
+    ...(boardingPoint ? [boardingPoint] : []),
+    ...(destinationStopPoint ? [destinationStopPoint] : []),
+  ];
 
   return (
     <div className="relative h-[500px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
@@ -647,7 +748,7 @@ export default function RouteMap({
             <Popup>
 
               <strong>
-                Destination
+                Actual destination
               </strong>
 
               <br />
@@ -658,7 +759,97 @@ export default function RouteMap({
           </Marker>
         )}
 
-        {/* Route */}
+        {/* GTFS boarding stop */}
+
+        {boardingStop && (
+          <Marker
+            position={[
+              boardingStop.lat,
+              boardingStop.lon,
+            ]}
+            icon={boardingStopIcon}
+          >
+            <Popup>
+              <strong>
+                🚌 Boarding stop
+              </strong>
+
+              <br />
+
+              {boardingStop.displayName}
+
+              <br />
+
+              <span style={{ color: "#64748b" }}>
+                Route {selectedRoute?.route_number}
+              </span>
+            </Popup>
+          </Marker>
+        )}
+
+        {/* GTFS destination stop */}
+
+        {destinationStop && (
+          <Marker
+            position={[
+              destinationStop.lat,
+              destinationStop.lon,
+            ]}
+            icon={destinationStopIcon}
+          >
+            <Popup>
+              <strong>
+                🚌 Destination stop
+              </strong>
+
+              <br />
+
+              {destinationStop.displayName}
+
+              <br />
+
+              <span style={{ color: "#64748b" }}>
+                Route {selectedRoute?.route_number}
+              </span>
+            </Popup>
+          </Marker>
+        )}
+
+        {/* Walking leg: actual origin → boarding stop */}
+
+        {actualStartPoint && boardingPoint && (
+          <Polyline
+            positions={[
+              actualStartPoint,
+              boardingPoint,
+            ]}
+            pathOptions={{
+              color: "#16a34a",
+              weight: 4,
+              opacity: 0.9,
+              dashArray: "8 8",
+            }}
+          />
+        )}
+
+        {/* Walking leg: destination stop → actual destination */}
+
+        {destinationStopPoint && actualEndPoint && (
+          <Polyline
+            positions={[
+              destinationStopPoint,
+              actualEndPoint,
+            ]}
+            pathOptions={{
+              color: "#f59e0b",
+              weight: 4,
+              opacity: 0.9,
+              dashArray: "8 8",
+            }}
+          />
+        )}
+
+        {/* Road routing reference */}
 
         {routePoints.length > 0 && (
           <Polyline
@@ -666,16 +857,16 @@ export default function RouteMap({
             pathOptions={{
               color: "#2563eb",
               weight: 6,
-              opacity: 0.9,
+              opacity: 0.72,
             }}
           />
         )}
 
-        {/* Automatically fit route */}
+        {/* Automatically fit the complete journey */}
 
-        {routePoints.length > 1 && (
+        {mapFitPoints.length > 1 && (
           <MapController
-            points={routePoints}
+            points={mapFitPoints}
           />
         )}
 
@@ -688,50 +879,106 @@ export default function RouteMap({
       {route && !loading && (
         <div className="absolute bottom-4 left-4 right-4 z-[1000]">
 
-          <div className="flex flex-col gap-3 rounded-xl bg-white/95 p-4 shadow-xl backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-xl bg-white/95 p-4 shadow-xl backdrop-blur">
 
-            <div>
-
-              <p className="text-xs font-semibold text-slate-400">
-                ROUTE
-              </p>
-
-              <p className="mt-1 text-sm font-bold text-slate-900">
-                {from} → {to}
-              </p>
-
-            </div>
-
-            <div className="flex gap-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
               <div>
 
-                <p className="text-[10px] text-slate-400">
-                  DISTANCE
+                <p className="text-xs font-semibold text-slate-400">
+                  {selectedRoute
+                    ? "SMARTCOMMUTE JOURNEY"
+                    : "ROAD ROUTE"}
                 </p>
 
-                <p className="text-sm font-bold text-slate-900">
-                  {(route.distance / 1000).toFixed(1)} km
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {from} → {to}
                 </p>
 
               </div>
 
-              <div>
+              <div className="flex gap-5">
 
-                <p className="text-[10px] text-slate-400">
-                  ROAD ETA
-                </p>
+                <div>
 
-                <p className="text-sm font-bold text-slate-900">
-                  {Math.round(
-                    route.duration / 60
-                  )}{" "}
-                  min
-                </p>
+                  <p className="text-[10px] text-slate-400">
+                    ROAD DISTANCE
+                  </p>
+
+                  <p className="text-sm font-bold text-slate-900">
+                    {(route.distance / 1000).toFixed(1)} km
+                  </p>
+
+                </div>
+
+                <div>
+
+                  <p className="text-[10px] text-slate-400">
+                    ROAD ETA
+                  </p>
+
+                  <p className="text-sm font-bold text-slate-900">
+                    {Math.round(
+                      route.duration / 60
+                    )}{" "}
+                    min
+                  </p>
+
+                </div>
 
               </div>
 
             </div>
+
+            {selectedRoute && (
+              <div className="border-t border-slate-100 pt-3">
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+
+                  <span className="font-bold text-slate-800">
+                    🚌 Route {selectedRoute.route_number}
+                  </span>
+
+                  <span className="text-slate-500">
+                    {selectedRoute.origin.stop_name}
+                    {" → "}
+                    {selectedRoute.destination.stop_name}
+                  </span>
+
+                  <span className="text-slate-500">
+                    Departs {selectedRoute.departure_time}
+                  </span>
+
+                  <span className="font-semibold text-slate-700">
+                    {selectedRoute.total_minutes} min total
+                  </span>
+
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
+
+                  <span>
+                    🚶 {selectedRoute.walking_minutes} min walking
+                  </span>
+
+                  <span>
+                    ⏱ {selectedRoute.wait_minutes} min wait
+                  </span>
+
+                  <span>
+                    🚌 {selectedRoute.journey_minutes} min bus journey
+                  </span>
+
+                </div>
+
+                <p className="mt-2 text-[10px] text-slate-400">
+                  Blue line = road routing reference •
+                  Green/orange dashed lines = walking legs •
+                  Bus stops are from the GTFS schedule
+                </p>
+
+              </div>
+            )}
 
           </div>
 

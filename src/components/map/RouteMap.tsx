@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import {
   MapContainer,
   Marker,
@@ -11,14 +12,30 @@ import {
 } from "react-leaflet";
 
 import L from "leaflet";
+
 import "leaflet/dist/leaflet.css";
 
-import type { BackendRoute } from "@/lib/backend-route";
+import type {
+  BackendRoute,
+  BackendRouteLeg,
+} from "@/lib/backend-route";
+
+/*
+|--------------------------------------------------------------------------
+| Types
+|--------------------------------------------------------------------------
+*/
 
 interface LocationPoint {
   lat: number;
   lon: number;
   displayName: string;
+}
+
+interface RouteData {
+  coordinates: [number, number][];
+  distance: number;
+  duration: number;
 }
 
 interface RouteMapProps {
@@ -35,24 +52,16 @@ interface RouteMapProps {
     longitude: number;
   };
 
-  /**
-   * Selected route returned by the SmartCommute backend.
-   * When available, the map also shows the nearest GTFS
-   * boarding and destination stops.
-   */
   selectedRoute?: BackendRoute | null;
-}
-
-interface RouteData {
-  coordinates: [number, number][];
-  distance: number;
-  duration: number;
 }
 
 /*
 |--------------------------------------------------------------------------
 | Hyderabad fallback locations
 |--------------------------------------------------------------------------
+|
+| These are only used if coordinates aren't supplied by the backend.
+|
 */
 
 const FALLBACK_LOCATIONS: Record<
@@ -67,26 +76,26 @@ const FALLBACK_LOCATIONS: Record<
 
   "lords institute of engineering": {
     lat: 17.34217,
-    lon: 78.36760,
-    displayName:
-      "Lords Institute of Engineering & Technology, Himayath Sagar, Hyderabad",
-  },
-
-  "lords institute of engineering and technology": {
-    lat: 17.34217,
-    lon: 78.36760,
-    displayName:
-      "Lords Institute of Engineering & Technology, Himayath Sagar, Hyderabad",
-  },
-
-  lords: {
-    lat: 17.34217,
-    lon: 78.36760,
+    lon: 78.3676,
     displayName:
       "Lords Institute of Engineering & Technology, Hyderabad",
   },
 
-  "charminar": {
+  "lords institute of engineering and technology": {
+    lat: 17.34217,
+    lon: 78.3676,
+    displayName:
+      "Lords Institute of Engineering & Technology, Hyderabad",
+  },
+
+  lords: {
+    lat: 17.34217,
+    lon: 78.3676,
+    displayName:
+      "Lords Institute of Engineering & Technology, Hyderabad",
+  },
+
+  charminar: {
     lat: 17.3616,
     lon: 78.4747,
     displayName: "Charminar, Hyderabad",
@@ -98,13 +107,13 @@ const FALLBACK_LOCATIONS: Record<
     displayName: "HITEC City, Hyderabad",
   },
 
-  "gachibowli": {
+  gachibowli: {
     lat: 17.4401,
     lon: 78.3489,
     displayName: "Gachibowli, Hyderabad",
   },
 
-  "secunderabad": {
+  secunderabad: {
     lat: 17.4399,
     lon: 78.4983,
     displayName: "Secunderabad, Hyderabad",
@@ -122,7 +131,7 @@ const FALLBACK_LOCATIONS: Record<
     displayName: "Jubilee Hills, Hyderabad",
   },
 
-  "kukatpally": {
+  kukatpally: {
     lat: 17.4849,
     lon: 78.4138,
     displayName: "Kukatpally, Hyderabad",
@@ -134,13 +143,13 @@ const FALLBACK_LOCATIONS: Record<
     displayName: "LB Nagar, Hyderabad",
   },
 
-  "dilsukhnagar": {
+  dilsukhnagar: {
     lat: 17.3688,
     lon: 78.5247,
     displayName: "Dilsukhnagar, Hyderabad",
   },
 
-  "uppal": {
+  uppal: {
     lat: 17.4065,
     lon: 78.5591,
     displayName: "Uppal, Hyderabad",
@@ -149,7 +158,7 @@ const FALLBACK_LOCATIONS: Record<
 
 /*
 |--------------------------------------------------------------------------
-| Leaflet marker icon
+| Icons
 |--------------------------------------------------------------------------
 */
 
@@ -171,41 +180,74 @@ const startIcon = new L.Icon({
 
 const boardingStopIcon = L.divIcon({
   className: "smartcommute-map-marker",
+
   html: `
     <div style="
-      width: 36px;
-      height: 36px;
-      border-radius: 9999px;
-      background: #16a34a;
-      border: 3px solid white;
-      box-shadow: 0 3px 10px rgba(0,0,0,.28);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    ">🚌</div>
+      width:36px;
+      height:36px;
+      border-radius:9999px;
+      background:#16a34a;
+      border:3px solid white;
+      box-shadow:0 3px 10px rgba(0,0,0,.28);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:18px;
+    ">
+      🚌
+    </div>
   `,
+
   iconSize: [36, 36],
   iconAnchor: [18, 18],
   popupAnchor: [0, -18],
 });
 
-const destinationStopIcon = L.divIcon({
+const transferStopIcon = L.divIcon({
   className: "smartcommute-map-marker",
+
   html: `
     <div style="
-      width: 36px;
-      height: 36px;
-      border-radius: 9999px;
-      background: #f59e0b;
-      border: 3px solid white;
-      box-shadow: 0 3px 10px rgba(0,0,0,.28);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    ">🚌</div>
+      width:40px;
+      height:40px;
+      border-radius:9999px;
+      background:#7c3aed;
+      border:3px solid white;
+      box-shadow:0 3px 12px rgba(0,0,0,.32);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:19px;
+    ">
+      🔄
+    </div>
   `,
+
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+  popupAnchor: [0, -20],
+});
+
+const destinationStopIcon = L.divIcon({
+  className: "smartcommute-map-marker",
+
+  html: `
+    <div style="
+      width:36px;
+      height:36px;
+      border-radius:9999px;
+      background:#f59e0b;
+      border:3px solid white;
+      box-shadow:0 3px 10px rgba(0,0,0,.28);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:18px;
+    ">
+      🚌
+    </div>
+  `,
+
   iconSize: [36, 36],
   iconAnchor: [18, 18],
   popupAnchor: [0, -18],
@@ -232,7 +274,7 @@ function MapController({
     const bounds = L.latLngBounds(points);
 
     map.fitBounds(bounds, {
-      padding: [45, 45],
+      padding: [55, 55],
     });
   }, [points, map]);
 
@@ -241,7 +283,7 @@ function MapController({
 
 /*
 |--------------------------------------------------------------------------
-| Normalize location text
+| Location helpers
 |--------------------------------------------------------------------------
 */
 
@@ -254,12 +296,6 @@ function normalizeLocation(
     .replace(/\s+/g, " ");
 }
 
-/*
-|--------------------------------------------------------------------------
-| Try known Hyderabad locations first
-|--------------------------------------------------------------------------
-*/
-
 function getFallbackLocation(
   location: string
 ): LocationPoint | null {
@@ -269,13 +305,6 @@ function getFallbackLocation(
   if (FALLBACK_LOCATIONS[normalized]) {
     return FALLBACK_LOCATIONS[normalized];
   }
-
-  /*
-   * Handle variations such as:
-   * "Lords Institute of Engineering & Technology"
-   * "Lords Institute of Engineering and Technology"
-   * "Lords College"
-   */
 
   if (
     normalized.includes("lords institute") ||
@@ -292,8 +321,14 @@ function getFallbackLocation(
 
 /*
 |--------------------------------------------------------------------------
-| Nominatim geocoding
+| Nominatim
 |--------------------------------------------------------------------------
+|
+| Kept only as a fallback.
+|
+| Normal SmartCommute searches already receive coordinates
+| from the FastAPI backend.
+|
 */
 
 async function searchNominatim(
@@ -302,9 +337,9 @@ async function searchNominatim(
   try {
     const url =
       "https://nominatim.openstreetmap.org/search" +
-      `?format=jsonv2` +
-      `&limit=1` +
-      `&countrycodes=in` +
+      "?format=jsonv2" +
+      "&limit=1" +
+      "&countrycodes=in" +
       `&q=${encodeURIComponent(query)}`;
 
     const response = await fetch(url, {
@@ -319,7 +354,10 @@ async function searchNominatim(
 
     const data = await response.json();
 
-    if (!Array.isArray(data) || data.length === 0) {
+    if (
+      !Array.isArray(data) ||
+      data.length === 0
+    ) {
       return null;
     }
 
@@ -336,25 +374,15 @@ async function searchNominatim(
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Robust geocoder
-|--------------------------------------------------------------------------
-*/
-
 async function geocodeLocation(
   location: string
 ): Promise<LocationPoint | null> {
-  const cleanLocation = location.trim();
+  const cleanLocation =
+    location.trim();
 
   if (!cleanLocation) {
     return null;
   }
-
-  /*
-   * 1. Use known Hyderabad fallback.
-   * This makes the demo reliable for common locations.
-   */
 
   const fallback =
     getFallbackLocation(cleanLocation);
@@ -363,20 +391,12 @@ async function geocodeLocation(
     return fallback;
   }
 
-  /*
-   * 2. Try exact user query.
-   */
-
   const exactResult =
     await searchNominatim(cleanLocation);
 
   if (exactResult) {
     return exactResult;
   }
-
-  /*
-   * 3. Try Hyderabad-specific query.
-   */
 
   const hyderabadResult =
     await searchNominatim(
@@ -386,10 +406,6 @@ async function geocodeLocation(
   if (hyderabadResult) {
     return hyderabadResult;
   }
-
-  /*
-   * 4. Try a broader Hyderabad query.
-   */
 
   const broaderResult =
     await searchNominatim(
@@ -405,7 +421,7 @@ async function geocodeLocation(
 
 /*
 |--------------------------------------------------------------------------
-| OSRM route calculation
+| OSRM road geometry
 |--------------------------------------------------------------------------
 */
 
@@ -425,7 +441,8 @@ async function getRoute(
       return null;
     }
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
     if (
       data.code !== "Ok" ||
@@ -478,7 +495,7 @@ export default function RouteMap({
   const [end, setEnd] =
     useState<LocationPoint | null>(null);
 
-  const [route, setRoute] =
+  const [roadRoute, setRoadRoute] =
     useState<RouteData | null>(null);
 
   const [loading, setLoading] =
@@ -487,19 +504,21 @@ export default function RouteMap({
   const [error, setError] =
     useState<string | null>(null);
 
+  /*
+  |--------------------------------------------------------------------------
+  | Load actual locations
+  |--------------------------------------------------------------------------
+  */
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadRoute() {
       setLoading(true);
       setError(null);
-      setRoute(null);
+      setRoadRoute(null);
       setStart(null);
       setEnd(null);
-
-      /*
-       * Geocode both locations.
-       */
 
       const [
         startLocation,
@@ -507,16 +526,20 @@ export default function RouteMap({
       ] = await Promise.all([
         fromCoordinates
           ? Promise.resolve({
-              lat: fromCoordinates.latitude,
-              lon: fromCoordinates.longitude,
+              lat:
+                fromCoordinates.latitude,
+              lon:
+                fromCoordinates.longitude,
               displayName: from,
             })
           : geocodeLocation(from),
 
         toCoordinates
           ? Promise.resolve({
-              lat: toCoordinates.latitude,
-              lon: toCoordinates.longitude,
+              lat:
+                toCoordinates.latitude,
+              lon:
+                toCoordinates.longitude,
               displayName: to,
             })
           : geocodeLocation(to),
@@ -526,13 +549,13 @@ export default function RouteMap({
         return;
       }
 
-      /*
-       * If either location cannot be found.
-       */
-
-      if (!startLocation || !endLocation) {
+      if (
+        !startLocation ||
+        !endLocation
+      ) {
         setError(
-          !startLocation && !endLocation
+          !startLocation &&
+          !endLocation
             ? "Could not find either location."
             : !startLocation
               ? `Could not find "${from}".`
@@ -547,7 +570,8 @@ export default function RouteMap({
       setEnd(endLocation);
 
       /*
-       * Calculate road route.
+       * OSRM is used only to provide useful road geometry
+       * between the actual requested locations.
        */
 
       const routeData =
@@ -560,16 +584,10 @@ export default function RouteMap({
         return;
       }
 
-      if (!routeData) {
-        setError(
-          "Locations were found, but a road route could not be calculated."
-        );
-
-        setLoading(false);
-        return;
+      if (routeData) {
+        setRoadRoute(routeData);
       }
 
-      setRoute(routeData);
       setLoading(false);
     }
 
@@ -581,85 +599,232 @@ export default function RouteMap({
   }, [
     from,
     to,
+
     fromCoordinates?.latitude,
     fromCoordinates?.longitude,
+
     toCoordinates?.latitude,
     toCoordinates?.longitude,
+
     selectedRoute?.trip_id,
+    selectedRoute?.route_id,
+
     selectedRoute?.origin?.stop_id,
     selectedRoute?.destination?.stop_id,
+
+    selectedRoute?.transfer_stop?.stop_id,
   ]);
 
   /*
-   * Default Hyderabad center.
-   */
+  |--------------------------------------------------------------------------
+  | Selected route information
+  |--------------------------------------------------------------------------
+  */
 
-  const center: [number, number] =
-    start
-      ? [start.lat, start.lon]
-      : [17.385, 78.4867];
+  const boardingStop =
+    selectedRoute?.origin
+      ? {
+          lat: Number(
+            selectedRoute.origin.latitude
+          ),
+          lon: Number(
+            selectedRoute.origin.longitude
+          ),
+          displayName:
+            selectedRoute.origin.stop_name,
+        }
+      : null;
 
-  const routePoints =
-    route?.coordinates ?? [];
+  const destinationStop =
+    selectedRoute?.destination
+      ? {
+          lat: Number(
+            selectedRoute.destination.latitude
+          ),
+          lon: Number(
+            selectedRoute.destination.longitude
+          ),
+          displayName:
+            selectedRoute.destination.stop_name,
+        }
+      : null;
+
+  const transferStop =
+    selectedRoute?.transfer_stop
+      ? {
+          lat: Number(
+            selectedRoute.transfer_stop.latitude
+          ),
+          lon: Number(
+            selectedRoute.transfer_stop.longitude
+          ),
+          displayName:
+            selectedRoute.transfer_stop.stop_name,
+        }
+      : null;
 
   /*
-   * SmartCommute transit stops.
-   *
-   * These come directly from the selected backend route and
-   * represent the GTFS boarding and destination stops.
-   */
-  const boardingStop = selectedRoute?.origin
-    ? {
-        lat: Number(selectedRoute.origin.latitude),
-        lon: Number(selectedRoute.origin.longitude),
-        displayName: selectedRoute.origin.stop_name,
-      }
-    : null;
+  |--------------------------------------------------------------------------
+  | Actual coordinates
+  |--------------------------------------------------------------------------
+  */
 
-  const destinationStop = selectedRoute?.destination
-    ? {
-        lat: Number(selectedRoute.destination.latitude),
-        lon: Number(selectedRoute.destination.longitude),
-        displayName: selectedRoute.destination.stop_name,
-      }
-    : null;
+  const actualStartPoint:
+    | [number, number]
+    | null =
+    start
+      ? [start.lat, start.lon]
+      : null;
 
-  const actualStartPoint: [number, number] | null =
-    start ? [start.lat, start.lon] : null;
+  const actualEndPoint:
+    | [number, number]
+    | null =
+    end
+      ? [end.lat, end.lon]
+      : null;
 
-  const actualEndPoint: [number, number] | null =
-    end ? [end.lat, end.lon] : null;
-
-  const boardingPoint: [number, number] | null =
+  const boardingPoint:
+    | [number, number]
+    | null =
     boardingStop
-      ? [boardingStop.lat, boardingStop.lon]
+      ? [
+          boardingStop.lat,
+          boardingStop.lon,
+        ]
       : null;
 
-  const destinationStopPoint: [number, number] | null =
+  const transferPoint:
+    | [number, number]
+    | null =
+    transferStop
+      ? [
+          transferStop.lat,
+          transferStop.lon,
+        ]
+      : null;
+
+  const destinationStopPoint:
+    | [number, number]
+    | null =
     destinationStop
-      ? [destinationStop.lat, destinationStop.lon]
+      ? [
+          destinationStop.lat,
+          destinationStop.lon,
+        ]
       : null;
 
-  const mapFitPoints: [number, number][] = [
-    ...(routePoints.length > 0 ? routePoints : []),
-    ...(actualStartPoint ? [actualStartPoint] : []),
-    ...(actualEndPoint ? [actualEndPoint] : []),
-    ...(boardingPoint ? [boardingPoint] : []),
-    ...(destinationStopPoint ? [destinationStopPoint] : []),
-  ];
+  /*
+  |--------------------------------------------------------------------------
+  | GTFS bus legs
+  |--------------------------------------------------------------------------
+  */
+
+  const legs =
+    selectedRoute?.legs ?? [];
+
+  /*
+  |--------------------------------------------------------------------------
+  | Map fit points
+  |--------------------------------------------------------------------------
+  */
+
+  const mapFitPoints =
+    useMemo(() => {
+      const points: [
+        number,
+        number
+      ][] = [];
+
+      if (actualStartPoint) {
+        points.push(actualStartPoint);
+      }
+
+      if (boardingPoint) {
+        points.push(boardingPoint);
+      }
+
+      if (transferPoint) {
+        points.push(transferPoint);
+      }
+
+      if (destinationStopPoint) {
+        points.push(
+          destinationStopPoint
+        );
+      }
+
+      if (actualEndPoint) {
+        points.push(actualEndPoint);
+      }
+
+      /*
+       * If no GTFS route is selected,
+       * use the road geometry.
+       */
+
+      if (
+        points.length === 0 &&
+        roadRoute
+      ) {
+        points.push(
+          ...roadRoute.coordinates
+        );
+      }
+
+      return points;
+    }, [
+      actualStartPoint,
+      boardingPoint,
+      transferPoint,
+      destinationStopPoint,
+      actualEndPoint,
+      roadRoute,
+    ]);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Center
+  |--------------------------------------------------------------------------
+  */
+
+  const center: [
+    number,
+    number
+  ] = start
+    ? [start.lat, start.lon]
+    : [17.385, 78.4867];
+
+  /*
+  |--------------------------------------------------------------------------
+  | Route type
+  |--------------------------------------------------------------------------
+  */
+
+  const isTransferRoute =
+    selectedRoute?.type ===
+      "transfer" ||
+    (selectedRoute?.transfers ?? 0) >
+      0 ||
+    legs.length > 1;
+
+  /*
+  |--------------------------------------------------------------------------
+  | Render
+  |--------------------------------------------------------------------------
+  */
 
   return (
     <div className="relative h-[500px] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-
-      {/* ------------------------------------------------ */}
-      {/* Loading */}
-      {/* ------------------------------------------------ */}
+      {/*
+      |--------------------------------------------------------------------------
+      | Loading
+      |--------------------------------------------------------------------------
+      */}
 
       {loading && (
         <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/80 backdrop-blur-sm">
           <div className="rounded-xl bg-white px-5 py-4 shadow-lg">
             <div className="flex items-center gap-3">
-
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
 
               <div>
@@ -668,22 +833,22 @@ export default function RouteMap({
                 </p>
 
                 <p className="text-xs text-slate-500">
-                  Locating your destinations
+                  Building your journey map
                 </p>
               </div>
-
             </div>
           </div>
         </div>
       )}
 
-      {/* ------------------------------------------------ */}
-      {/* Error */}
-      {/* ------------------------------------------------ */}
+      {/*
+      |--------------------------------------------------------------------------
+      | Error
+      |--------------------------------------------------------------------------
+      */}
 
       {error && !loading && (
         <div className="absolute left-4 right-4 top-4 z-[1000] rounded-xl border border-red-200 bg-white p-4 shadow-lg">
-
           <p className="text-sm font-bold text-red-700">
             Route unavailable
           </p>
@@ -691,13 +856,14 @@ export default function RouteMap({
           <p className="mt-1 text-xs leading-5 text-slate-500">
             {error}
           </p>
-
         </div>
       )}
 
-      {/* ------------------------------------------------ */}
-      {/* Map */}
-      {/* ------------------------------------------------ */}
+      {/*
+      |--------------------------------------------------------------------------
+      | MAP
+      |--------------------------------------------------------------------------
+      */}
 
       <MapContainer
         center={center}
@@ -705,13 +871,16 @@ export default function RouteMap({
         scrollWheelZoom={true}
         className="h-full w-full"
       >
-
         <TileLayer
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* Starting point */}
+        {/*
+        |--------------------------------------------------------------------------
+        | ACTUAL START
+        |--------------------------------------------------------------------------
+        */}
 
         {start && (
           <Marker
@@ -722,20 +891,22 @@ export default function RouteMap({
             icon={startIcon}
           >
             <Popup>
-
               <strong>
-                Starting point
+                📍 Starting point
               </strong>
 
               <br />
 
               {from}
-
             </Popup>
           </Marker>
         )}
 
-        {/* Destination */}
+        {/*
+        |--------------------------------------------------------------------------
+        | ACTUAL DESTINATION
+        |--------------------------------------------------------------------------
+        */}
 
         {end && (
           <Marker
@@ -746,20 +917,22 @@ export default function RouteMap({
             icon={startIcon}
           >
             <Popup>
-
               <strong>
-                Actual destination
+                🎯 Your destination
               </strong>
 
               <br />
 
               {to}
-
             </Popup>
           </Marker>
         )}
 
-        {/* GTFS boarding stop */}
+        {/*
+        |--------------------------------------------------------------------------
+        | BOARDING STOP
+        |--------------------------------------------------------------------------
+        */}
 
         {boardingStop && (
           <Marker
@@ -778,16 +951,79 @@ export default function RouteMap({
 
               {boardingStop.displayName}
 
-              <br />
+              {selectedRoute && (
+                <>
+                  <br />
 
-              <span style={{ color: "#64748b" }}>
-                Route {selectedRoute?.route_number}
-              </span>
+                  <span
+                    style={{
+                      color: "#64748b",
+                    }}
+                  >
+                    Board{" "}
+                    {legs.length > 0
+                      ? legs[0]
+                          ?.route_number
+                      : selectedRoute.route_number}
+                  </span>
+                </>
+              )}
             </Popup>
           </Marker>
         )}
 
-        {/* GTFS destination stop */}
+        {/*
+        |--------------------------------------------------------------------------
+        | TRANSFER STOP
+        |--------------------------------------------------------------------------
+        */}
+
+        {transferStop && (
+          <Marker
+            position={[
+              transferStop.lat,
+              transferStop.lon,
+            ]}
+            icon={transferStopIcon}
+          >
+            <Popup>
+              <strong>
+                🔄 Transfer stop
+              </strong>
+
+              <br />
+
+              {transferStop.displayName}
+
+              {legs.length > 1 && (
+                <>
+                  <br />
+
+                  <span
+                    style={{
+                      color: "#64748b",
+                    }}
+                  >
+                    Change from{" "}
+                    <strong>
+                      {legs[0]?.route_number}
+                    </strong>{" "}
+                    to{" "}
+                    <strong>
+                      {legs[1]?.route_number}
+                    </strong>
+                  </span>
+                </>
+              )}
+            </Popup>
+          </Marker>
+        )}
+
+        {/*
+        |--------------------------------------------------------------------------
+        | DESTINATION STOP
+        |--------------------------------------------------------------------------
+        */}
 
         {destinationStop && (
           <Marker
@@ -795,7 +1031,9 @@ export default function RouteMap({
               destinationStop.lat,
               destinationStop.lon,
             ]}
-            icon={destinationStopIcon}
+            icon={
+              destinationStopIcon
+            }
           >
             <Popup>
               <strong>
@@ -806,185 +1044,443 @@ export default function RouteMap({
 
               {destinationStop.displayName}
 
-              <br />
+              {selectedRoute && (
+                <>
+                  <br />
 
-              <span style={{ color: "#64748b" }}>
-                Route {selectedRoute?.route_number}
-              </span>
+                  <span
+                    style={{
+                      color: "#64748b",
+                    }}
+                  >
+                    Arrive on{" "}
+                    {legs.length > 0
+                      ? legs[
+                          legs.length - 1
+                        ]?.route_number
+                      : selectedRoute.route_number}
+                  </span>
+                </>
+              )}
             </Popup>
           </Marker>
         )}
 
-        {/* Walking leg: actual origin → boarding stop */}
+        {/*
+        |--------------------------------------------------------------------------
+        | WALKING: START → BOARDING STOP
+        |--------------------------------------------------------------------------
+        */}
 
-        {actualStartPoint && boardingPoint && (
-          <Polyline
-            positions={[
-              actualStartPoint,
-              boardingPoint,
-            ]}
-            pathOptions={{
-              color: "#16a34a",
-              weight: 4,
-              opacity: 0.9,
-              dashArray: "8 8",
-            }}
-          />
-        )}
+        {actualStartPoint &&
+          boardingPoint && (
+            <Polyline
+              positions={[
+                actualStartPoint,
+                boardingPoint,
+              ]}
+              pathOptions={{
+                color: "#16a34a",
+                weight: 4,
+                opacity: 0.9,
+                dashArray: "8 8",
+              }}
+            />
+          )}
 
-        {/* Walking leg: destination stop → actual destination */}
+        {/*
+        |--------------------------------------------------------------------------
+        | WALKING: DESTINATION STOP → DESTINATION
+        |--------------------------------------------------------------------------
+        */}
 
-        {destinationStopPoint && actualEndPoint && (
-          <Polyline
-            positions={[
-              destinationStopPoint,
-              actualEndPoint,
-            ]}
-            pathOptions={{
-              color: "#f59e0b",
-              weight: 4,
-              opacity: 0.9,
-              dashArray: "8 8",
-            }}
-          />
-        )}
+        {destinationStopPoint &&
+          actualEndPoint && (
+            <Polyline
+              positions={[
+                destinationStopPoint,
+                actualEndPoint,
+              ]}
+              pathOptions={{
+                color: "#f59e0b",
+                weight: 4,
+                opacity: 0.9,
+                dashArray: "8 8",
+              }}
+            />
+          )}
 
-        {/* Road routing reference */}
+        {/*
+        |--------------------------------------------------------------------------
+        | BUS LEG 1
+        |--------------------------------------------------------------------------
+        |
+        | We draw a visual line between:
+        |
+        | boarding stop → transfer stop
+        |
+        */}
 
-        {routePoints.length > 0 && (
-          <Polyline
-            positions={routePoints}
-            pathOptions={{
-              color: "#2563eb",
-              weight: 6,
-              opacity: 0.72,
-            }}
-          />
-        )}
+        {isTransferRoute &&
+          boardingPoint &&
+          transferPoint && (
+            <Polyline
+              positions={[
+                boardingPoint,
+                transferPoint,
+              ]}
+              pathOptions={{
+                color: "#2563eb",
+                weight: 7,
+                opacity: 0.9,
+              }}
+            />
+          )}
 
-        {/* Automatically fit the complete journey */}
+        {/*
+        |--------------------------------------------------------------------------
+        | BUS LEG 2
+        |--------------------------------------------------------------------------
+        |
+        | transfer stop → destination stop
+        |
+        */}
+
+        {isTransferRoute &&
+          transferPoint &&
+          destinationStopPoint && (
+            <Polyline
+              positions={[
+                transferPoint,
+                destinationStopPoint,
+              ]}
+              pathOptions={{
+                color: "#7c3aed",
+                weight: 7,
+                opacity: 0.9,
+              }}
+            />
+          )}
+
+        {/*
+        |--------------------------------------------------------------------------
+        | DIRECT BUS ROUTE
+        |--------------------------------------------------------------------------
+        */}
+
+        {!isTransferRoute &&
+          boardingPoint &&
+          destinationStopPoint && (
+            <Polyline
+              positions={[
+                boardingPoint,
+                destinationStopPoint,
+              ]}
+              pathOptions={{
+                color: "#2563eb",
+                weight: 7,
+                opacity: 0.9,
+              }}
+            />
+          )}
+
+        {/*
+        |--------------------------------------------------------------------------
+        | ROAD ROUTE FALLBACK
+        |--------------------------------------------------------------------------
+        |
+        | Only show OSRM geometry when we don't have enough
+        | GTFS stop information to construct the transit path.
+        |
+        */}
+
+        {!selectedRoute &&
+          roadRoute &&
+          roadRoute.coordinates.length >
+            1 && (
+            <Polyline
+              positions={
+                roadRoute.coordinates
+              }
+              pathOptions={{
+                color: "#2563eb",
+                weight: 6,
+                opacity: 0.72,
+              }}
+            />
+          )}
+
+        {/*
+        |--------------------------------------------------------------------------
+        | FIT MAP
+        |--------------------------------------------------------------------------
+        */}
 
         {mapFitPoints.length > 1 && (
           <MapController
             points={mapFitPoints}
           />
         )}
-
       </MapContainer>
 
-      {/* ------------------------------------------------ */}
-      {/* Route information */}
-      {/* ------------------------------------------------ */}
+      {/*
+      |--------------------------------------------------------------------------
+      | JOURNEY INFORMATION
+      |--------------------------------------------------------------------------
+      */}
 
-      {route && !loading && (
-        <div className="absolute bottom-4 left-4 right-4 z-[1000]">
+      {selectedRoute &&
+        !loading && (
+          <div className="absolute bottom-4 left-4 right-4 z-[1000]">
+            <div className="rounded-xl bg-white/95 p-4 shadow-xl backdrop-blur">
+              {/*
+              |--------------------------------------------------------------------------
+              | Header
+              |--------------------------------------------------------------------------
+              */}
 
-          <div className="flex flex-col gap-3 rounded-xl bg-white/95 p-4 shadow-xl backdrop-blur">
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
-              <div>
-
-                <p className="text-xs font-semibold text-slate-400">
-                  {selectedRoute
-                    ? "SMARTCOMMUTE JOURNEY"
-                    : "ROAD ROUTE"}
-                </p>
-
-                <p className="mt-1 text-sm font-bold text-slate-900">
-                  {from} → {to}
-                </p>
-
-              </div>
-
-              <div className="flex gap-5">
-
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold text-slate-400">
+                      SMARTCOMMUTE JOURNEY
+                    </p>
 
-                  <p className="text-[10px] text-slate-400">
-                    ROAD DISTANCE
+                    {isTransferRoute ? (
+                      <span className="rounded-full bg-purple-100 px-2 py-1 text-[10px] font-bold text-purple-700">
+                        1 TRANSFER
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-green-100 px-2 py-1 text-[10px] font-bold text-green-700">
+                        DIRECT
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="mt-1 text-sm font-bold text-slate-900">
+                    {from} → {to}
                   </p>
-
-                  <p className="text-sm font-bold text-slate-900">
-                    {(route.distance / 1000).toFixed(1)} km
-                  </p>
-
                 </div>
 
-                <div>
+                <div className="flex gap-5">
+                  <div>
+                    <p className="text-[10px] text-slate-400">
+                      TOTAL
+                    </p>
 
-                  <p className="text-[10px] text-slate-400">
-                    ROAD ETA
-                  </p>
+                    <p className="text-sm font-bold text-slate-900">
+                      {
+                        selectedRoute.total_minutes
+                      }{" "}
+                      min
+                    </p>
+                  </div>
 
-                  <p className="text-sm font-bold text-slate-900">
-                    {Math.round(
-                      route.duration / 60
-                    )}{" "}
-                    min
-                  </p>
+                  <div>
+                    <p className="text-[10px] text-slate-400">
+                      BUSES
+                    </p>
 
+                    <p className="text-sm font-bold text-slate-900">
+                      {legs.length ||
+                        1}
+                    </p>
+                  </div>
                 </div>
-
               </div>
 
-            </div>
+              {/*
+              |--------------------------------------------------------------------------
+              | Journey timeline
+              |--------------------------------------------------------------------------
+              */}
 
-            {selectedRoute && (
-              <div className="border-t border-slate-100 pt-3">
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-bold text-slate-800">
+                    📍 {from}
+                  </span>
 
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                  <span className="text-slate-400">
+                    →
+                  </span>
+
+                  <span className="font-semibold text-green-700">
+                    🚌{" "}
+                    {legs.length > 0
+                      ? legs[0]
+                          ?.route_number
+                      : selectedRoute.route_number}
+                  </span>
+
+                  {isTransferRoute &&
+                    transferStop && (
+                      <>
+                        <span className="text-slate-400">
+                          →
+                        </span>
+
+                        <span className="font-semibold text-purple-700">
+                          🔄{" "}
+                          {
+                            transferStop.displayName
+                          }
+                        </span>
+
+                        {legs[1] && (
+                          <>
+                            <span className="text-slate-400">
+                              →
+                            </span>
+
+                            <span className="font-semibold text-purple-700">
+                              🚌{" "}
+                              {
+                                legs[1]
+                                  .route_number
+                              }
+                            </span>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                  <span className="text-slate-400">
+                    →
+                  </span>
 
                   <span className="font-bold text-slate-800">
-                    🚌 Route {selectedRoute.route_number}
+                    🎯 {to}
                   </span>
-
-                  <span className="text-slate-500">
-                    {selectedRoute.origin.stop_name}
-                    {" → "}
-                    {selectedRoute.destination.stop_name}
-                  </span>
-
-                  <span className="text-slate-500">
-                    Departs {selectedRoute.departure_time}
-                  </span>
-
-                  <span className="font-semibold text-slate-700">
-                    {selectedRoute.total_minutes} min total
-                  </span>
-
                 </div>
-
-                <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
-
-                  <span>
-                    🚶 {selectedRoute.walking_minutes} min walking
-                  </span>
-
-                  <span>
-                    ⏱ {selectedRoute.wait_minutes} min wait
-                  </span>
-
-                  <span>
-                    🚌 {selectedRoute.journey_minutes} min bus journey
-                  </span>
-
-                </div>
-
-                <p className="mt-2 text-[10px] text-slate-400">
-                  Blue line = road routing reference •
-                  Green/orange dashed lines = walking legs •
-                  Bus stops are from the GTFS schedule
-                </p>
-
               </div>
-            )}
 
+              {/*
+              |--------------------------------------------------------------------------
+              | Individual bus legs
+              |--------------------------------------------------------------------------
+              */}
+
+              {legs.length > 0 && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {legs.map(
+                    (
+                      leg: BackendRouteLeg,
+                      index
+                    ) => (
+                      <div
+                        key={`${leg.trip_id}-${index}`}
+                        className="rounded-lg border border-slate-100 bg-slate-50 p-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-900">
+                            🚌 Bus{" "}
+                            {index + 1}
+                          </span>
+
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600">
+                            {
+                              leg.route_number
+                            }
+                          </span>
+                        </div>
+
+                        <p className="mt-2 text-xs font-semibold text-slate-700">
+                          {leg.from_stop}
+                          {" → "}
+                          {leg.to_stop}
+                        </p>
+
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {
+                            leg.departure_time
+                          }
+                          {" – "}
+                          {
+                            leg.arrival_time
+                          }
+                        </p>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {/*
+              |--------------------------------------------------------------------------
+              | Journey stats
+              |--------------------------------------------------------------------------
+              */}
+
+              <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                <span>
+                  🚶{" "}
+                  {
+                    selectedRoute.walking_minutes
+                  }{" "}
+                  min walking
+                </span>
+
+                <span>
+                  ⏱{" "}
+                  {
+                    selectedRoute.wait_minutes
+                  }{" "}
+                  min initial wait
+                </span>
+
+                {typeof selectedRoute.transfer_wait_minutes ===
+                  "number" && (
+                  <span>
+                    🔄{" "}
+                    {
+                      selectedRoute.transfer_wait_minutes
+                    }{" "}
+                    min transfer wait
+                  </span>
+                )}
+
+                <span>
+                  🚌{" "}
+                  {
+                    selectedRoute.journey_minutes
+                  }{" "}
+                  min bus journey
+                </span>
+              </div>
+
+              {/*
+              |--------------------------------------------------------------------------
+              | Legend
+              |--------------------------------------------------------------------------
+              */}
+
+              <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-slate-400">
+                <span>
+                  🟢 Boarding
+                </span>
+
+                {isTransferRoute && (
+                  <span>
+                    🟣 Transfer
+                  </span>
+                )}
+
+                <span>
+                  🟠 Destination stop
+                </span>
+
+                <span>
+                  — Bus route
+                </span>
+
+                <span>
+                  - - Walking
+                </span>
+              </div>
+            </div>
           </div>
-
-        </div>
-      )}
-
+        )}
     </div>
   );
 }

@@ -13,6 +13,23 @@ export interface BackendStop {
   longitude: number;
 }
 
+export interface BackendRouteLeg {
+  trip_id: string;
+  route_id: string;
+  route_number: string;
+  from_stop: string;
+  to_stop: string;
+  departure_time: string;
+  arrival_time: string;
+}
+
+export interface BackendTransferStop {
+  stop_id: string;
+  stop_name: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface BackendRoute {
   trip_id: string;
   route_id: string;
@@ -20,8 +37,41 @@ export interface BackendRoute {
   route_name: string;
   trip_name: string;
 
+  /**
+   * Route type returned by the SmartCommute backend.
+   */
+  type?: "direct" | "transfer";
+
+  /**
+   * Number of transfers.
+   */
+  transfers?: number;
+
+  /**
+   * First / boarding stop.
+   */
   origin: BackendStop;
+
+  /**
+   * Final GTFS destination stop.
+   */
   destination: BackendStop;
+
+  /**
+   * Transfer stop for transfer routes.
+   */
+  transfer_stop?: BackendTransferStop;
+
+  /**
+   * Individual bus legs.
+   *
+   * Direct route:
+   *   legs[0]
+   *
+   * Transfer route:
+   *   legs[0] → transfer_stop → legs[1]
+   */
+  legs?: BackendRouteLeg[];
 
   departure_time: string;
   arrival_time: string;
@@ -29,6 +79,12 @@ export interface BackendRoute {
   wait_minutes: number;
   journey_minutes: number;
   walking_minutes: number;
+
+  /**
+   * Optional waiting time between buses.
+   */
+  transfer_wait_minutes?: number;
+
   total_minutes: number;
 
   score: number;
@@ -58,8 +114,27 @@ export interface BackendRouteResponse {
   };
 
   current_time: string;
+
   search_radius_km: number;
+
   count: number;
+
+  /**
+   * Backend routing metadata.
+   */
+  routing?: {
+    engine: string;
+    max_transfers: number;
+    walking_speed_minutes_per_km: number;
+  };
+
+  /**
+   * Backend ranking metadata.
+   */
+  ranking?: {
+    method: string;
+    lower_score_is_better: boolean;
+  };
 
   routes: BackendRoute[];
 
@@ -83,18 +158,11 @@ const API_BASE =
  * REAL LOCATION SEARCH
  * =========================================================
  *
- * The frontend no longer talks directly to Nominatim.
- *
- * Instead:
- *
  * Browser
- *   ↓
+ *    ↓
  * FastAPI /api/locations/search
- *   ↓
+ *    ↓
  * OpenStreetMap Nominatim
- *
- * This keeps geocoding behind our backend and gives us one
- * source of truth for coordinates.
  */
 
 export async function searchLocation(
@@ -167,7 +235,8 @@ export async function searchLocation(
   let data: LocationSearchResult;
 
   try {
-    data = JSON.parse(text) as LocationSearchResult;
+    data =
+      JSON.parse(text) as LocationSearchResult;
   } catch {
     throw new Error(
       "Location service returned an invalid response."
@@ -194,15 +263,17 @@ export async function searchLocation(
  * SEARCH BACKEND ROUTES
  * =========================================================
  *
- * User enters:
+ * User:
  *
- *   Abids → Attapur
+ *   Abids → Katedan
  *
- * We resolve both names through our FastAPI location API,
- * then send only coordinates to the GTFS route-search API.
- *
- * If the caller already has the user's GPS coordinates,
- * those coordinates are used for the origin instead.
+ * Browser
+ *    ↓
+ * location search
+ *    ↓
+ * coordinates
+ *    ↓
+ * GTFS route search
  */
 
 export async function searchBackendRoutes(
@@ -229,11 +300,10 @@ export async function searchBackendRoutes(
   }
 
   /*
-   * Resolve both locations.
+   * Resolve locations.
    *
-   * The origin can optionally come directly from the
-   * browser's GPS position when "Use my current location"
-   * is selected.
+   * If GPS coordinates are supplied for the origin,
+   * don't geocode the origin again.
    */
 
   const [origin, destination] =
@@ -249,7 +319,7 @@ export async function searchBackendRoutes(
     ]);
 
   /*
-   * Build the GTFS route-search request.
+   * Build GTFS route-search request.
    */
 
   const params = new URLSearchParams({
@@ -294,7 +364,7 @@ export async function searchBackendRoutes(
     await response.text().catch(() => "");
 
   /*
-   * Handle HTTP errors with the actual backend message.
+   * HTTP error handling.
    */
 
   if (!response.ok) {
@@ -323,7 +393,7 @@ export async function searchBackendRoutes(
   }
 
   /*
-   * Parse FastAPI response.
+   * Parse backend response.
    */
 
   let data: BackendRouteResponse;
@@ -338,18 +408,19 @@ export async function searchBackendRoutes(
   }
 
   /*
-   * Keep the user's actual coordinates separate from the
-   * nearest GTFS stop coordinates.
+   * Preserve actual requested coordinates.
    *
-   * This lets the map show:
+   * These are different from the nearest GTFS stops.
    *
-   *   actual user location
-   *          ↓ walking
-   *   nearest bus stop
-   *          ↓ bus
-   *   destination bus stop
-   *          ↓ walking
-   *   actual destination
+   * Example:
+   *
+   * Abids
+   *   ↓ walking
+   * Mehdipatnam
+   *   ↓ bus
+   * Koti
+   *   ↓ walking
+   * Katedan
    */
 
   return {

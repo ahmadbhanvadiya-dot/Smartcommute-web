@@ -909,10 +909,26 @@ export default function DashboardPage() {
               </div>
 
               <RouteMap
-                key={searchVersion}
-                from={route.from}
-                to={route.to}
-              />
+  key={searchVersion}
+  from={route.from}
+  to={route.to}
+  fromCoordinates={
+    selectedRoute
+      ? {
+          latitude: selectedRoute.origin.latitude,
+          longitude: selectedRoute.origin.longitude,
+        }
+      : undefined
+  }
+  toCoordinates={
+    selectedRoute
+      ? {
+          latitude: selectedRoute.destination.latitude,
+          longitude: selectedRoute.destination.longitude,
+        }
+      : undefined
+  }
+/>
 
             </section>
 

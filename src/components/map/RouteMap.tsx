@@ -22,6 +22,16 @@ interface LocationPoint {
 interface RouteMapProps {
   from: string;
   to: string;
+
+  fromCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+
+  toCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 interface RouteData {
@@ -407,6 +417,8 @@ async function getRoute(
 export default function RouteMap({
   from,
   to,
+  fromCoordinates,
+  toCoordinates,
 }: RouteMapProps) {
   const [start, setStart] =
     useState<LocationPoint | null>(null);
@@ -441,8 +453,21 @@ export default function RouteMap({
         startLocation,
         endLocation,
       ] = await Promise.all([
-        geocodeLocation(from),
-        geocodeLocation(to),
+        fromCoordinates
+          ? Promise.resolve({
+              lat: fromCoordinates.latitude,
+              lon: fromCoordinates.longitude,
+              displayName: from,
+            })
+          : geocodeLocation(from),
+
+        toCoordinates
+          ? Promise.resolve({
+              lat: toCoordinates.latitude,
+              lon: toCoordinates.longitude,
+              displayName: to,
+            })
+          : geocodeLocation(to),
       ]);
 
       if (cancelled) {
@@ -501,7 +526,14 @@ export default function RouteMap({
     return () => {
       cancelled = true;
     };
-  }, [from, to]);
+  }, [
+    from,
+    to,
+    fromCoordinates?.latitude,
+    fromCoordinates?.longitude,
+    toCoordinates?.latitude,
+    toCoordinates?.longitude,
+  ]);
 
   /*
    * Default Hyderabad center.

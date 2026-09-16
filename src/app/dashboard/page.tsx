@@ -406,8 +406,8 @@ export default function DashboardPage() {
                     </h2>
 
                     <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
-                      LIVE DATA
-                    </span>
+  GTFS DATA
+</span>
 
                   </div>
 
@@ -481,7 +481,7 @@ export default function DashboardPage() {
 
                             {index === 0 && (
                               <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
-                                NEXT BEST
+                                RECOMMENDED
                               </span>
                             )}
 
@@ -657,14 +657,14 @@ export default function DashboardPage() {
               />
 
               <StatCard
-                title="AI Score"
+                title="SMART ROUTE SCORE"
                 value={`${aiScore}/100`}
-                subtitle="Route optimization score"
+                subtitle="Based on wait time and scheduled journey duration"
                 icon={Activity}
               />
 
               <StatCard
-                title="Reliability"
+                title="Schedule Reliability"
                 value={`${reliability}%`}
                 subtitle={`${crowd} crowd estimate`}
                 icon={TrendingDown}
@@ -701,7 +701,7 @@ export default function DashboardPage() {
 
                   <span className="h-2 w-2 rounded-full bg-emerald-500" />
 
-                  GTFS Online
+                  GTFS Schedule
 
                 </div>
 
@@ -1070,9 +1070,12 @@ export default function DashboardPage() {
                   SmartCommute AI
                 </p>
 
-                <p className="mt-1 text-xs leading-5 text-emerald-800/80">
-                  Route recommendations are currently powered by the TGSRTC GTFS schedule. Live GPS, real-time traffic and passenger-count data are separate prototype modules.
-                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+  <span>✓ GTFS schedules</span>
+  <span>✓ Route optimization</span>
+  <span>✓ ETA estimation</span>
+  <span>✓ Multi-route comparison</span>
+</div>
 
               </div>
 

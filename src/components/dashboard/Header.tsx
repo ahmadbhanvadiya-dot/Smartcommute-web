@@ -1,70 +1,138 @@
 "use client";
 
-import { useState } from "react";
-import { Bell, Menu, Search } from "lucide-react";
-import Sidebar from "./Sidebar";
+import {
+  Bell,
+  Menu,
+  Search,
+  X,
+} from "lucide-react";
 
-export default function Header() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+interface HeaderProps {
+  mobileOpen?: boolean;
+  onClose?: () => void;
+}
 
+export default function Header({
+  mobileOpen = false,
+  onClose,
+}: HeaderProps) {
   return (
-    <>
-      <Sidebar
-        mobileOpen={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-      />
+    <header className="sticky top-0 z-40 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
 
-      <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur-md sm:px-6 lg:ml-64 lg:px-8">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setMobileOpen(true)}
-            className="rounded-xl p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
-          >
-            <Menu size={22} />
-          </button>
+      {/* ==================================================== */}
+      {/* LEFT */}
+      {/* ==================================================== */}
 
-          <div className="hidden md:flex md:items-center md:gap-2">
-            <Search size={18} className="text-slate-400" />
+      <div className="flex min-w-0 items-center gap-3">
 
-            <input
-              placeholder="Search routes, buses..."
-              className="w-64 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-            />
+        {/* Mobile menu / close button */}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 lg:hidden"
+          aria-label={
+            mobileOpen
+              ? "Close menu"
+              : "Open menu"
+          }
+        >
+          {mobileOpen ? (
+            <X size={20} />
+          ) : (
+            <Menu size={20} />
+          )}
+        </button>
+
+        {/* Page heading */}
+
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-bold text-slate-900 sm:text-xl">
+            SmartCommute AI
+          </h1>
+
+          <p className="hidden truncate text-xs text-slate-500 sm:block">
+            Intelligent transportation for students
+          </p>
+        </div>
+
+      </div>
+
+      {/* ==================================================== */}
+      {/* RIGHT */}
+      {/* ==================================================== */}
+
+      <div className="flex items-center gap-2 sm:gap-4">
+
+        {/* Search */}
+
+        <div className="hidden items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 md:flex">
+
+          <Search
+            size={17}
+            className="mr-2 text-slate-400"
+          />
+
+          <input
+            type="text"
+            placeholder="Search routes..."
+            className="w-40 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 lg:w-56"
+          />
+
+          <span className="ml-3 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-400">
+            /
+          </span>
+
+        </div>
+
+        {/* Mobile search */}
+
+        <button
+          type="button"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 md:hidden"
+          aria-label="Search"
+        >
+          <Search size={19} />
+        </button>
+
+        {/* Notifications */}
+
+        <button
+          type="button"
+          className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100"
+          aria-label="Notifications"
+        >
+
+          <Bell size={19} />
+
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
+
+        </button>
+
+        {/* User */}
+
+        <div className="hidden items-center gap-3 border-l border-slate-200 pl-4 sm:flex">
+
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+            SC
           </div>
 
-          <div className="md:hidden">
-            <p className="text-sm font-bold text-slate-900">
-              SmartCommute AI
+          <div className="hidden lg:block">
+
+            <p className="text-sm font-semibold text-slate-800">
+              Student
             </p>
+
+            <p className="text-xs text-slate-400">
+              SmartCommute User
+            </p>
+
           </div>
+
         </div>
 
-        <div className="flex items-center gap-3">
-          <button className="relative rounded-xl p-2.5 text-slate-500 transition hover:bg-slate-100">
-            <Bell size={20} />
+      </div>
 
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
-          </button>
-
-          <div className="hidden h-8 w-px bg-slate-200 sm:block" />
-
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-              A
-            </div>
-
-            <div className="hidden sm:block">
-              <p className="text-sm font-semibold text-slate-800">
-                Ahmad
-              </p>
-
-              <p className="text-xs text-slate-400">
-                Student
-              </p>
-            </div>
-          </div>
-        </div>
-      </header>
-    </>
+    </header>
   );
 }

@@ -37,12 +37,34 @@ export interface BackendRoute {
 }
 
 export interface BackendRouteResponse {
+  /*
+   * Coordinates returned by FastAPI.
+   *
+   * These are the coordinates used for the
+   * GTFS route search.
+   */
   origin: {
     latitude: number;
     longitude: number;
   };
 
   destination: {
+    latitude: number;
+    longitude: number;
+  };
+
+  /*
+   * Actual coordinates requested by the user.
+   *
+   * These are kept separately so the map can show
+   * the actual starting point and destination.
+   */
+  requested_origin: {
+    latitude: number;
+    longitude: number;
+  };
+
+  requested_destination: {
     latitude: number;
     longitude: number;
   };
@@ -55,12 +77,17 @@ export interface BackendRouteResponse {
 }
 
 /*
- * IMPORTANT:
- * These are demo-known locations.
+ * =========================================================
+ * KNOWN LOCATIONS
+ * =========================================================
  *
- * This avoids depending on a third-party geocoder
- * every time the user searches.
+ * These are demo-known Hyderabad locations.
+ *
+ * Known locations are resolved locally first so the
+ * application does not depend on a third-party geocoder
+ * for common demo searches.
  */
+
 const KNOWN_LOCATIONS: Record<
   string,
   LocationCoordinates
@@ -85,23 +112,20 @@ const KNOWN_LOCATIONS: Record<
     lng: 78.48243,
   },
 
-  "lords institute of engineering":
-    {
-      lat: 17.342264,
-      lng: 78.367449,
-    },
+  "lords institute of engineering": {
+    lat: 17.342264,
+    lng: 78.367449,
+  },
 
-  "lords institute of engineering and technology":
-    {
-      lat: 17.342264,
-      lng: 78.367449,
-    },
+  "lords institute of engineering and technology": {
+    lat: 17.342264,
+    lng: 78.367449,
+  },
 
-  "lords institute of engineering & technology":
-    {
-      lat: 17.342264,
-      lng: 78.367449,
-    },
+  "lords institute of engineering & technology": {
+    lat: 17.342264,
+    lng: 78.367449,
+  },
 
   "lords college": {
     lat: 17.342264,
@@ -109,15 +133,21 @@ const KNOWN_LOCATIONS: Record<
   },
 
   "himayath sagar": {
-    lat: 17.342264,
-    lng: 78.367449,
-  },
+  lat: 17.342264,
+  lng: 78.367449,
+},
 
   "appa junction": {
     lat: 17.342264,
     lng: 78.367449,
   },
 };
+
+/*
+ * =========================================================
+ * NORMALIZE LOCATION
+ * =========================================================
+ */
 
 function normalizeLocation(
   value: string
@@ -131,8 +161,11 @@ function normalizeLocation(
 }
 
 /*
- * Resolve a user-entered location.
+ * =========================================================
+ * RESOLVE LOCATION
+ * =========================================================
  */
+
 export async function resolveLocation(
   location: string
 ): Promise<LocationCoordinates> {
@@ -140,19 +173,27 @@ export async function resolveLocation(
     normalizeLocation(location);
 
   /*
-   * Exact match.
+   * -------------------------------------------------------
+   * 1. Exact known-location match
+   * -------------------------------------------------------
    */
+
   if (KNOWN_LOCATIONS[normalized]) {
     return KNOWN_LOCATIONS[normalized];
   }
 
   /*
-   * Partial match.
+   * -------------------------------------------------------
+   * 2. Partial known-location match
+   * -------------------------------------------------------
    *
-   * Example:
+   * Examples:
+   *
    * "Lords Institute"
-   * can still match the known Lords location.
+   * "Lords Institute of Engineering"
+   * "Lords College"
    */
+
   const matchingKey =
     Object.keys(KNOWN_LOCATIONS).find(
       (key) =>
@@ -165,15 +206,16 @@ export async function resolveLocation(
   }
 
   /*
-   * Last-resort geocoding.
-   *
-   * This is only used for locations that are not
-   * already known by SmartCommute.
+   * -------------------------------------------------------
+   * 3. Last-resort Nominatim geocoding
+   * -------------------------------------------------------
    */
+
   const params = new URLSearchParams({
     q: `${location}, Hyderabad, Telangana, India`,
     format: "json",
     limit: "1",
+    countrycodes: "in",
   });
 
   const response = await fetch(
@@ -192,7 +234,8 @@ export async function resolveLocation(
     );
   }
 
-  const results = await response.json();
+  const results =
+    await response.json();
 
   if (
     !Array.isArray(results) ||
@@ -210,27 +253,51 @@ export async function resolveLocation(
 }
 
 /*
- * Search real GTFS routes through FastAPI.
+ * =========================================================
+ * SEARCH BACKEND ROUTES
+ * =========================================================
+ *
+ * Sends the resolved coordinates to FastAPI.
+ *
+ * FastAPI then searches the TGSRTC GTFS dataset and returns
+ * upcoming routes.
  */
+
 export async function searchBackendRoutes(
   from: string,
   to: string
 ): Promise<BackendRouteResponse> {
-  const [origin, destination] =
-    await Promise.all([
-      resolveLocation(from),
-      resolveLocation(to),
-    ]);
+  /*
+   * Resolve both requested locations.
+   */
+
+  const [
+    origin,
+    destination,
+  ] = await Promise.all([
+    resolveLocation(from),
+    resolveLocation(to),
+  ]);
+
+  /*
+   * Backend URL.
+   */
 
   const apiBase =
     process.env.NEXT_PUBLIC_API_URL ||
     "http://127.0.0.1:8000";
 
+  /*
+   * Query parameters expected by FastAPI.
+   */
+
   const params = new URLSearchParams({
     from_lat: String(origin.lat),
     from_lng: String(origin.lng),
+
     to_lat: String(destination.lat),
     to_lng: String(destination.lng),
+
     radius_km: "5",
     limit: "10",
   });
@@ -244,10 +311,18 @@ export async function searchBackendRoutes(
     url
   );
 
+  /*
+   * Request FastAPI.
+   */
+
   const response = await fetch(url, {
     method: "GET",
     cache: "no-store",
   });
+
+  /*
+   * Handle backend errors.
+   */
 
   if (!response.ok) {
     const text =
@@ -262,8 +337,34 @@ export async function searchBackendRoutes(
     );
   }
 
+  /*
+   * Parse backend response.
+   */
+
   const data =
     (await response.json()) as BackendRouteResponse;
 
-  return data;
+  /*
+   * IMPORTANT:
+   *
+   * Keep the user's actual requested coordinates.
+   *
+   * The backend's origin/destination can represent
+   * nearby GTFS stops, while these represent the actual
+   * searched locations.
+   */
+
+  return {
+    ...data,
+
+    requested_origin: {
+      latitude: origin.lat,
+      longitude: origin.lng,
+    },
+
+    requested_destination: {
+      latitude: destination.lat,
+      longitude: destination.lng,
+    },
+  };
 }

@@ -21,6 +21,7 @@ import LiveTransport from "@/components/dashboard/LiveTransport";
 import {
   searchBackendRoutes,
   type BackendRoute,
+  type BackendRouteResponse,
 } from "@/lib/backend-route";
 
 /* ========================================================= */
@@ -115,6 +116,9 @@ export default function DashboardPage() {
   const [backendRoutes, setBackendRoutes] =
     useState<BackendRoute[]>([]);
 
+  const [backendResponse, setBackendResponse] =
+    useState<BackendRouteResponse | null>(null);
+
   const [selectedRouteId, setSelectedRouteId] =
     useState<string | null>(null);
 
@@ -169,6 +173,7 @@ export default function DashboardPage() {
     setRouteLoading(true);
     setRouteError(null);
     setBackendRoutes([]);
+    setBackendResponse(null);
     setSelectedRouteId(null);
 
     setSearchVersion(
@@ -185,6 +190,7 @@ export default function DashboardPage() {
       const routes =
         response.routes || [];
 
+      setBackendResponse(response);
       setBackendRoutes(routes);
 
       if (routes.length === 0) {
@@ -205,6 +211,7 @@ export default function DashboardPage() {
       );
 
       setBackendRoutes([]);
+      setBackendResponse(null);
     } finally {
       setRouteLoading(false);
     }
@@ -909,26 +916,44 @@ export default function DashboardPage() {
               </div>
 
               <RouteMap
-  key={searchVersion}
-  from={route.from}
-  to={route.to}
-  fromCoordinates={
-    selectedRoute
-      ? {
-          latitude: selectedRoute.origin.latitude,
-          longitude: selectedRoute.origin.longitude,
-        }
-      : undefined
-  }
-  toCoordinates={
-    selectedRoute
-      ? {
-          latitude: selectedRoute.destination.latitude,
-          longitude: selectedRoute.destination.longitude,
-        }
-      : undefined
-  }
-/>
+                key={`${searchVersion}-${selectedRoute?.trip_id ?? "none"}`}
+                from={route.from}
+                to={route.to}
+                fromCoordinates={
+                  backendResponse?.requested_origin
+                    ? {
+                        latitude:
+                          backendResponse.requested_origin.latitude,
+                        longitude:
+                          backendResponse.requested_origin.longitude,
+                      }
+                    : selectedRoute
+                      ? {
+                          latitude:
+                            selectedRoute.origin.latitude,
+                          longitude:
+                            selectedRoute.origin.longitude,
+                        }
+                      : undefined
+                }
+                toCoordinates={
+                  backendResponse?.requested_destination
+                    ? {
+                        latitude:
+                          backendResponse.requested_destination.latitude,
+                        longitude:
+                          backendResponse.requested_destination.longitude,
+                      }
+                    : selectedRoute
+                      ? {
+                          latitude:
+                            selectedRoute.destination.latitude,
+                          longitude:
+                            selectedRoute.destination.longitude,
+                        }
+                      : undefined
+                }
+              />
 
             </section>
 

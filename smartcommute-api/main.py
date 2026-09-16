@@ -2568,19 +2568,6 @@ class LogisticsRouteRequest(BaseModel):
     )
 
 
-@app.get("/api/logistics/vehicles")
-def logistics_vehicles():
-
-    return {
-        "vehicles": [
-            {
-                "type": vehicle_type,
-                **vehicle,
-            }
-            for vehicle_type, vehicle
-            in VEHICLES.items()
-        ]
-    }
 
 @app.get("/api/logistics/vehicles")
 def logistics_vehicles():

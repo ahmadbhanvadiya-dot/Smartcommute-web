@@ -99,6 +99,42 @@ function formatTime(
   return `${displayHour}:${minute} ${suffix}`;
 }
 
+type RouteLeg = {
+  trip_id?: string;
+  route_id?: string;
+  route_number: string;
+  from_stop: string;
+  to_stop: string;
+  departure_time: string;
+  arrival_time: string;
+};
+
+type TransferRouteData = BackendRoute & {
+  type?: "direct" | "transfer";
+  transfers?: number;
+  transfer_stop?: {
+    stop_id: string;
+    stop_name: string;
+    latitude: number;
+    longitude: number;
+  };
+  legs?: RouteLeg[];
+};
+
+function getTransferData(route: BackendRoute): TransferRouteData {
+  return route as TransferRouteData;
+}
+
+function getRouteLabel(route: BackendRoute): string {
+  const data = getTransferData(route);
+
+  if (data.legs && data.legs.length > 1) {
+    return data.legs.map((leg) => leg.route_number).filter(Boolean).join(" → ");
+  }
+
+  return route.route_number;
+}
+
 /* ========================================================= */
 /* DASHBOARD */
 /* ========================================================= */
@@ -499,7 +535,7 @@ export default function DashboardPage() {
                                 </p>
 
                                 <h3 className="mt-0.5 text-xl font-black text-slate-900">
-                                  {item.route_number}
+                                  {getRouteLabel(item)}
                                 </h3>
 
                               </div>
@@ -514,53 +550,138 @@ export default function DashboardPage() {
 
                           </div>
 
-                          {/* STOPS */}
+                          {/* JOURNEY BREAKDOWN */}
+                          {(() => {
+                            const data = getTransferData(item);
+                            const isTransfer =
+                              data.type === "transfer" ||
+                              (data.transfers ?? 0) > 0 ||
+                              (data.legs?.length ?? 0) > 1;
 
-                          <div className="mt-4 space-y-3">
+                            return (
+                              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                                <div className="flex items-start gap-2">
+                                  <MapPin
+                                    size={15}
+                                    className="mt-0.5 shrink-0 text-blue-500"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                      Your start
+                                    </p>
+                                    <p className="truncate text-xs font-bold text-slate-800">
+                                      {route.from}
+                                    </p>
+                                  </div>
+                                </div>
 
-                            <div className="flex items-start gap-2">
+                                <div className="ml-[7px] h-3 border-l border-dashed border-amber-300" />
 
-                              <MapPin
-                                size={15}
-                                className="mt-0.5 shrink-0 text-blue-500"
-                              />
+                                <div className="flex items-start gap-2">
+                                  <Bus
+                                    size={15}
+                                    className="mt-0.5 shrink-0 text-blue-600"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                      Boarding stop
+                                    </p>
+                                    <p className="truncate text-xs font-bold text-slate-800">
+                                      {item.origin.stop_name}
+                                    </p>
+                                  </div>
+                                </div>
 
-                              <div>
+                                {isTransfer && data.legs && data.legs.length > 1 ? (
+                                  <div className="mt-3 space-y-2">
+                                    {data.legs.map((leg, legIndex) => (
+                                      <div
+                                        key={`${leg.trip_id ?? leg.route_id ?? leg.route_number}-${legIndex}`}
+                                        className="rounded-lg border border-blue-100 bg-white px-3 py-2"
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-[10px] font-bold uppercase tracking-wide text-blue-600">
+                                            Bus {legIndex + 1}
+                                          </span>
+                                          <span className="text-xs font-black text-slate-900">
+                                            {leg.route_number}
+                                          </span>
+                                        </div>
+                                        <p className="mt-1 text-[10px] text-slate-500">
+                                          {leg.from_stop} → {leg.to_stop}
+                                        </p>
+                                        <p className="mt-1 text-[10px] font-semibold text-slate-600">
+                                          {formatTime(leg.departure_time)} – {formatTime(leg.arrival_time)}
+                                        </p>
+                                      </div>
+                                    ))}
 
-                                <p className="text-[10px] font-semibold uppercase text-slate-400">
-                                  Boarding
-                                </p>
+                                    {data.transfer_stop && (
+                                      <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2">
+                                        <span className="text-sm">🔄</span>
+                                        <div>
+                                          <p className="text-[10px] font-bold uppercase text-amber-600">
+                                            Transfer
+                                          </p>
+                                          <p className="text-xs font-bold text-amber-900">
+                                            {data.transfer_stop.stop_name}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="mt-3 rounded-lg border border-blue-100 bg-white px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-bold uppercase tracking-wide text-blue-600">
+                                        Direct bus
+                                      </span>
+                                      <span className="text-xs font-black text-slate-900">
+                                        {item.route_number}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1 text-[10px] text-slate-500">
+                                      {item.origin.stop_name} → {item.destination.stop_name}
+                                    </p>
+                                  </div>
+                                )}
 
-                                <p className="text-xs font-bold text-slate-800">
-                                  {item.origin.stop_name}
-                                </p>
+                                <div className="ml-[7px] h-3 border-l border-dashed border-amber-300" />
 
+                                <div className="flex items-start gap-2">
+                                  <Navigation
+                                    size={15}
+                                    className="mt-0.5 shrink-0 text-emerald-500"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                      Destination stop
+                                    </p>
+                                    <p className="truncate text-xs font-bold text-slate-800">
+                                      {item.destination.stop_name}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="ml-[7px] h-3 border-l border-dashed border-amber-300" />
+
+                                <div className="flex items-start gap-2">
+                                  <Navigation
+                                    size={15}
+                                    className="mt-0.5 shrink-0 text-emerald-600"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                      Your destination
+                                    </p>
+                                    <p className="truncate text-xs font-bold text-slate-800">
+                                      {route.to}
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
-
-                            </div>
-
-                            <div className="flex items-start gap-2">
-
-                              <Navigation
-                                size={15}
-                                className="mt-0.5 shrink-0 text-emerald-500"
-                              />
-
-                              <div>
-
-                                <p className="text-[10px] font-semibold uppercase text-slate-400">
-                                  Destination
-                                </p>
-
-                                <p className="text-xs font-bold text-slate-800">
-                                  {item.destination.stop_name}
-                                </p>
-
-                              </div>
-
-                            </div>
-
-                          </div>
+                            );
+                          })()}
 
                           {/* TIME */}
 
@@ -765,12 +886,33 @@ export default function DashboardPage() {
 
                         <h3 className="mt-1 text-2xl font-black text-slate-900">
                           TGSRTC{" "}
-                          {selectedRoute.route_number}
+                          {getRouteLabel(selectedRoute)}
                         </h3>
 
                         <p className="mt-1 text-xs text-slate-500">
                           {selectedRoute.trip_name}
                         </p>
+                        {(() => {
+                          const data = getTransferData(selectedRoute);
+                          const isTransfer =
+                            data.type === "transfer" ||
+                            (data.transfers ?? 0) > 0 ||
+                            (data.legs?.length ?? 0) > 1;
+
+                          return (
+                            <span
+                              className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                                isTransfer
+                                  ? "bg-amber-50 text-amber-700"
+                                  : "bg-emerald-50 text-emerald-700"
+                              }`}
+                            >
+                              {isTransfer
+                                ? `${data.transfers ?? Math.max(1, (data.legs?.length ?? 2) - 1)} transfer${(data.transfers ?? 1) > 1 ? "s" : ""}`
+                                : "Direct route"}
+                            </span>
+                          );
+                        })()}
 
                       </div>
 

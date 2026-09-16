@@ -1,43 +1,49 @@
+
+
+export interface BackendStop {
+  stop_id: string;
+  stop_name: string;
+  distance_km: number;
+  latitude: number;
+  longitude: number;
+}
+
 export interface BackendRoute {
-  route_id: string;
-  route_short_name: string;
   trip_id: string;
+  route_id: string;
+  route_number: string;
+  route_name: string;
+  trip_name: string;
 
-  origin_stop: {
-    stop_id: string;
-    stop_name: string;
-    lat: number;
-    lon: number;
-  };
-
-  destination_stop: {
-    stop_id: string;
-    stop_name: string;
-    lat: number;
-    lon: number;
-  };
+  origin: BackendStop;
+  destination: BackendStop;
 
   departure_time: string;
   arrival_time: string;
 
   wait_minutes: number;
   journey_minutes: number;
-  walking_minutes: number;
   total_minutes: number;
 
   score: number;
+  status: string;
 }
 
 export interface BackendRouteResponse {
-  from: {
-    lat: number;
-    lng: number;
+  origin: {
+    latitude: number;
+    longitude: number;
   };
-  to: {
-    lat: number;
-    lng: number;
+
+  destination: {
+    latitude: number;
+    longitude: number;
   };
+
+  current_time: string;
+  search_radius_km: number;
   count: number;
+
   routes: BackendRoute[];
 }
 
@@ -45,6 +51,12 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://127.0.0.1:8000";
 
+/*
+ * Known Hyderabad locations.
+ *
+ * These are used first so the demo does not depend
+ * on an external geocoding service for common places.
+ */
 const KNOWN_LOCATIONS: Record<
   string,
   { lat: number; lng: number }
@@ -64,13 +76,15 @@ const KNOWN_LOCATIONS: Record<
     lng: 78.4828,
   },
 
-  "lords institute of engineering": {
-    lat: 17.3952,
-    lng: 78.4392,
+  "koti medical college": {
+    lat: 17.3827,
+    lng: 78.4824,
   },
 };
 
-function normalizeLocation(value: string) {
+function normalizeLocation(
+  value: string
+) {
   return value
     .trim()
     .toLowerCase()
@@ -79,18 +93,22 @@ function normalizeLocation(value: string) {
 
 async function geocodeLocation(
   location: string
-): Promise<{ lat: number; lng: number }> {
-  const normalized = normalizeLocation(location);
+): Promise<{
+  lat: number;
+  lng: number;
+}> {
+  const normalized =
+    normalizeLocation(location);
 
-  const known = KNOWN_LOCATIONS[normalized];
+  const known =
+    KNOWN_LOCATIONS[normalized];
 
   if (known) {
     return known;
   }
 
   /*
-   * Fallback to OpenStreetMap Nominatim for
-   * locations that aren't in our known-location list.
+   * Fallback geocoding using OpenStreetMap.
    */
   const params = new URLSearchParams({
     q: `${location}, Hyderabad, Telangana, India`,
@@ -104,6 +122,7 @@ async function geocodeLocation(
       headers: {
         Accept: "application/json",
       },
+      cache: "no-store",
     }
   );
 
@@ -156,7 +175,9 @@ export async function searchBackendRoutes(
 
   if (!response.ok) {
     const errorText =
-      await response.text().catch(() => "");
+      await response.text().catch(
+        () => ""
+      );
 
     throw new Error(
       errorText ||

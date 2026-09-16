@@ -459,7 +459,7 @@ export default function DashboardPage() {
                             </p>
 
                             <h3 className="mt-1 text-xl font-black text-slate-900">
-                              {item.route_short_name}
+                              {item.route_number}
                             </h3>
 
                           </div>
@@ -483,7 +483,7 @@ export default function DashboardPage() {
                             </span>
 
                             <span className="text-right font-semibold text-slate-800">
-                              {item.origin_stop.stop_name}
+                              {item.origin.stop_name}
                             </span>
 
                           </div>
@@ -495,7 +495,7 @@ export default function DashboardPage() {
                             </span>
 
                             <span className="text-right font-semibold text-slate-800">
-                              {item.destination_stop.stop_name}
+                              {item.destination.stop_name}
                             </span>
 
                           </div>
@@ -653,7 +653,7 @@ export default function DashboardPage() {
 
                   <p className="text-sm text-slate-500">
                     {backendBestRoute
-                      ? `TGSRTC route ${backendBestRoute.route_short_name} is currently available.`
+                      ? `TGSRTC route ${backendBestRoute.route_number} is currently available.`
                       : selectedMode
                         ? "Dashboard updated for your selected transport option"
                         : "Selected using SmartCommute's route scoring engine"}
@@ -743,7 +743,7 @@ export default function DashboardPage() {
                     title={
                       index === 0 &&
                       backendBestRoute
-                        ? `TGSRTC ${backendBestRoute.route_short_name}`
+                        ? `TGSRTC ${backendBestRoute.route_number}`
                         : item.title
                     }
                     eta={
@@ -980,11 +980,11 @@ export default function DashboardPage() {
                       <>
                         The next available TGSRTC route is{" "}
                         <strong>
-                          {backendBestRoute.route_short_name}
+                          {backendBestRoute.route_number}
                         </strong>
                         . It departs from{" "}
                         <strong>
-                          {backendBestRoute.origin_stop.stop_name}
+                          {backendBestRoute.origin.stop_name}
                         </strong>{" "}
                         at{" "}
                         <strong>
@@ -992,7 +992,7 @@ export default function DashboardPage() {
                         </strong>{" "}
                         and reaches{" "}
                         <strong>
-                          {backendBestRoute.destination_stop.stop_name}
+                          {backendBestRoute.destination.stop_name}
                         </strong>{" "}
                         at{" "}
                         <strong>

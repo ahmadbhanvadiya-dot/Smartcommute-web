@@ -140,6 +140,50 @@ const [currentLocation, setCurrentLocation] =
 const [locationLoading, setLocationLoading] =
   useState(false);
 
+const handleUseCurrentLocation = () => {
+  if (!navigator.geolocation) {
+    setRouteError(
+      "Location services are not supported by this browser."
+    );
+    return;
+  }
+
+  setLocationLoading(true);
+  setRouteError(null);
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const coordinates = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+
+      setCurrentLocation(coordinates);
+
+      setLocationLoading(false);
+    },
+
+    (error) => {
+      console.error(
+        "Location error:",
+        error
+      );
+
+      setLocationLoading(false);
+
+      setRouteError(
+        "Unable to access your location. Please allow location permission and try again."
+      );
+    },
+
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 5000,
+    }
+  );
+};
+
   /* ======================================================= */
   /* BEST ROUTE */
   /* ======================================================= */
@@ -329,8 +373,14 @@ setSelectedRouteId(null);
           {/* ================================================= */}
 
           <RouteSearch
-            onSearch={handleRouteSearch}
-          />
+  onSearch={handleRouteSearch}
+  onUseCurrentLocation={
+    handleUseCurrentLocation
+  }
+  locationLoading={
+    locationLoading
+  }
+/>
 
           {/* ================================================= */}
           {/* CURRENT JOURNEY */}

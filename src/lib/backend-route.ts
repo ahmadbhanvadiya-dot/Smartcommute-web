@@ -1,4 +1,9 @@
+// src/lib/backend-route.ts
 
+export interface LocationCoordinates {
+  lat: number;
+  lng: number;
+}
 
 export interface BackendStop {
   stop_id: string;
@@ -47,19 +52,16 @@ export interface BackendRouteResponse {
   routes: BackendRoute[];
 }
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "http://127.0.0.1:8000";
-
 /*
- * Known Hyderabad locations.
+ * IMPORTANT:
+ * These are demo-known locations.
  *
- * These are used first so the demo does not depend
- * on an external geocoding service for common places.
+ * This avoids depending on a third-party geocoder
+ * every time the user searches.
  */
 const KNOWN_LOCATIONS: Record<
   string,
-  { lat: number; lng: number }
+  LocationCoordinates
 > = {
   mehdipatnam: {
     lat: 17.3952,
@@ -77,38 +79,94 @@ const KNOWN_LOCATIONS: Record<
   },
 
   "koti medical college": {
-    lat: 17.3827,
-    lng: 78.4824,
+    lat: 17.38273,
+    lng: 78.48243,
+  },
+
+  "lords institute of engineering":
+    {
+      lat: 17.342264,
+      lng: 78.367449,
+    },
+
+  "lords institute of engineering and technology":
+    {
+      lat: 17.342264,
+      lng: 78.367449,
+    },
+
+  "lords institute of engineering & technology":
+    {
+      lat: 17.342264,
+      lng: 78.367449,
+    },
+
+  "lords college": {
+    lat: 17.342264,
+    lng: 78.367449,
+  },
+
+  "himayath sagar": {
+    lat: 17.342264,
+    lng: 78.367449,
+  },
+
+  "appa junction": {
+    lat: 17.342264,
+    lng: 78.367449,
   },
 };
 
 function normalizeLocation(
   value: string
-) {
+): string {
   return value
     .trim()
     .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[.,]/g, "")
     .replace(/\s+/g, " ");
 }
 
-async function geocodeLocation(
+/*
+ * Resolve a user-entered location.
+ */
+export async function resolveLocation(
   location: string
-): Promise<{
-  lat: number;
-  lng: number;
-}> {
+): Promise<LocationCoordinates> {
   const normalized =
     normalizeLocation(location);
 
-  const known =
-    KNOWN_LOCATIONS[normalized];
-
-  if (known) {
-    return known;
+  /*
+   * Exact match.
+   */
+  if (KNOWN_LOCATIONS[normalized]) {
+    return KNOWN_LOCATIONS[normalized];
   }
 
   /*
-   * Fallback geocoding using OpenStreetMap.
+   * Partial match.
+   *
+   * Example:
+   * "Lords Institute"
+   * can still match the known Lords location.
+   */
+  const matchingKey =
+    Object.keys(KNOWN_LOCATIONS).find(
+      (key) =>
+        normalized.includes(key) ||
+        key.includes(normalized)
+    );
+
+  if (matchingKey) {
+    return KNOWN_LOCATIONS[matchingKey];
+  }
+
+  /*
+   * Last-resort geocoding.
+   *
+   * This is only used for locations that are not
+   * already known by SmartCommute.
    */
   const params = new URLSearchParams({
     q: `${location}, Hyderabad, Telangana, India`,
@@ -128,13 +186,16 @@ async function geocodeLocation(
 
   if (!response.ok) {
     throw new Error(
-      `Unable to find "${location}".`
+      `Unable to resolve "${location}".`
     );
   }
 
   const results = await response.json();
 
-  if (!results?.length) {
+  if (
+    !Array.isArray(results) ||
+    results.length === 0
+  ) {
     throw new Error(
       `Location "${location}" could not be found.`
     );
@@ -146,15 +207,22 @@ async function geocodeLocation(
   };
 }
 
+/*
+ * Search real GTFS routes through FastAPI.
+ */
 export async function searchBackendRoutes(
   from: string,
   to: string
 ): Promise<BackendRouteResponse> {
   const [origin, destination] =
     await Promise.all([
-      geocodeLocation(from),
-      geocodeLocation(to),
+      resolveLocation(from),
+      resolveLocation(to),
     ]);
+
+  const apiBase =
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://127.0.0.1:8000";
 
   const params = new URLSearchParams({
     from_lat: String(origin.lat),
@@ -165,25 +233,35 @@ export async function searchBackendRoutes(
     limit: "10",
   });
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/routes/search?${params.toString()}`,
-    {
-      method: "GET",
-      cache: "no-store",
-    }
+  const url =
+    `${apiBase}/api/routes/search?` +
+    params.toString();
+
+  console.log(
+    "SmartCommute route request:",
+    url
   );
 
+  const response = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+  });
+
   if (!response.ok) {
-    const errorText =
+    const text =
       await response.text().catch(
         () => ""
       );
 
     throw new Error(
-      errorText ||
-        `Backend route search failed (${response.status}).`
+      `Route API failed (${response.status}) ${
+        text || ""
+      }`
     );
   }
 
-  return response.json();
+  const data =
+    (await response.json()) as BackendRouteResponse;
+
+  return data;
 }

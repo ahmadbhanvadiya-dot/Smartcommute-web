@@ -2,24 +2,21 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+
 import {
   Activity,
   Clock3,
   IndianRupee,
   TrendingDown,
+  Bus,
+  MapPin,
+  Navigation,
 } from "lucide-react";
 
 import Header from "@/components/dashboard/Header";
 import StatCard from "@/components/dashboard/StatCard";
 import RouteSearch from "@/components/dashboard/RouteSearch";
-import AIRecommendation from "@/components/dashboard/AIRecommendation";
-import TransportCard from "@/components/dashboard/TransportCard";
 import LiveTransport from "@/components/dashboard/LiveTransport";
-
-import {
-  generateRoutes,
-  type TransportMode,
-} from "@/lib/route-engine";
 
 import {
   searchBackendRoutes,
@@ -54,12 +51,60 @@ const RouteMap = dynamic(
 );
 
 /* ========================================================= */
+/* HELPERS */
+/* ========================================================= */
+
+function getRouteScore(
+  route: BackendRoute
+): number {
+  /*
+   * Lower backend score = faster route.
+   *
+   * Convert it into a 0–100 presentation score.
+   */
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        100 - route.score
+      )
+    )
+  );
+}
+
+function formatTime(
+  value: string
+): string {
+  if (!value) {
+    return "--";
+  }
+
+  const parts = value.split(":");
+
+  if (parts.length < 2) {
+    return value;
+  }
+
+  const hour = Number(parts[0]);
+  const minute = parts[1];
+
+  const suffix =
+    hour >= 12 ? "PM" : "AM";
+
+  const displayHour =
+    hour % 12 || 12;
+
+  return `${displayHour}:${minute} ${suffix}`;
+}
+
+/* ========================================================= */
 /* DASHBOARD */
 /* ========================================================= */
 
 export default function DashboardPage() {
   /* ======================================================= */
-  /* ROUTE STATE */
+  /* SEARCH */
   /* ======================================================= */
 
   const [route, setRoute] = useState({
@@ -67,18 +112,11 @@ export default function DashboardPage() {
     to: "Lords Institute of Engineering",
   });
 
-  const [selectedMode, setSelectedMode] =
-    useState<TransportMode | null>(null);
-
-  const [searchVersion, setSearchVersion] =
-    useState(0);
-
-  /* ======================================================= */
-  /* BACKEND ROUTE STATE */
-  /* ======================================================= */
-
   const [backendRoutes, setBackendRoutes] =
     useState<BackendRoute[]>([]);
+
+  const [selectedRouteId, setSelectedRouteId] =
+    useState<string | null>(null);
 
   const [routeLoading, setRouteLoading] =
     useState(false);
@@ -86,33 +124,27 @@ export default function DashboardPage() {
   const [routeError, setRouteError] =
     useState<string | null>(null);
 
+  const [searchVersion, setSearchVersion] =
+    useState(0);
+
   /* ======================================================= */
-  /* LOCAL ROUTES */
+  /* BEST ROUTE */
   /* ======================================================= */
 
-  /*
-   * Keep the existing local route engine as a
-   * fallback for the dashboard UI.
-   */
-  const localRoutes = generateRoutes(
-    route.from,
-    route.to
-  );
-
-  /*
-   * Once the backend returns real TGSRTC routes,
-   * use the backend data for the main route metrics.
-   *
-   * Otherwise fall back to the existing route engine.
-   */
-
-  const backendBestRoute =
+  const bestRoute =
     backendRoutes.length > 0
       ? backendRoutes[0]
       : null;
 
+  const selectedRoute =
+    backendRoutes.find(
+      (item) =>
+        item.trip_id ===
+        selectedRouteId
+    ) ?? bestRoute;
+
   /* ======================================================= */
-  /* SEARCH */
+  /* SEARCH HANDLER */
   /* ======================================================= */
 
   const handleRouteSearch = async (
@@ -122,173 +154,123 @@ export default function DashboardPage() {
     const cleanFrom = from.trim();
     const cleanTo = to.trim();
 
-    if (!cleanFrom || !cleanTo) {
+    if (
+      !cleanFrom ||
+      !cleanTo
+    ) {
       return;
     }
-
-    /* Update displayed journey */
 
     setRoute({
       from: cleanFrom,
       to: cleanTo,
     });
 
-    /* Reset transport selection */
-
-    setSelectedMode(null);
-
-    /* Clear previous search state */
-
+    setRouteLoading(true);
     setRouteError(null);
     setBackendRoutes([]);
-
-    setRouteLoading(true);
-
-    /*
-     * Force map refresh.
-     */
+    setSelectedRouteId(null);
 
     setSearchVersion(
-      (previous) => previous + 1
+      (value) => value + 1
     );
 
     try {
-      /*
-       * Search the deployed FastAPI backend.
-       */
-
       const response =
         await searchBackendRoutes(
           cleanFrom,
           cleanTo
         );
 
-      setBackendRoutes(
-        response.routes || []
-      );
+      const routes =
+        response.routes || [];
 
-      if (
-        !response.routes ||
-        response.routes.length === 0
-      ) {
+      setBackendRoutes(routes);
+
+      if (routes.length === 0) {
         setRouteError(
-          "No upcoming TGSRTC routes were found for this journey."
+          "No upcoming TGSRTC buses were found for this journey."
         );
       }
     } catch (error) {
       console.error(
-        "SmartCommute route search failed:",
+        "SmartCommute route search error:",
         error
       );
-
-      setBackendRoutes([]);
 
       setRouteError(
         error instanceof Error
           ? error.message
-          : "Unable to find routes right now."
+          : "Unable to search routes."
       );
+
+      setBackendRoutes([]);
     } finally {
       setRouteLoading(false);
     }
   };
 
   /* ======================================================= */
-  /* TRANSPORT SELECTION */
+  /* METRICS */
   /* ======================================================= */
 
-  const handleTransportSelect = (
-    mode: TransportMode
-  ) => {
-    setSelectedMode(mode);
-  };
+  const eta =
+    selectedRoute?.total_minutes ??
+    0;
 
-  /* ======================================================= */
-  /* LOCAL RECOMMENDED ROUTE */
-  /* ======================================================= */
+  const wait =
+    selectedRoute?.wait_minutes ??
+    0;
 
-  const recommendedLocalRoute =
-    selectedMode
-      ? localRoutes.find(
-          (item) =>
-            item.mode === selectedMode
-        ) ?? localRoutes[0]
-      : localRoutes[0];
+  const journey =
+    selectedRoute?.journey_minutes ??
+    0;
 
-  /* ======================================================= */
-  /* DISPLAY METRICS */
-  /* ======================================================= */
+  const aiScore =
+    selectedRoute
+      ? getRouteScore(selectedRoute)
+      : 0;
 
   /*
-   * The current route-engine structure expects:
-   *
-   * eta
-   * cost
-   * score
-   * reliability
-   * traffic
-   * crowd
-   * delayRisk
-   *
-   * The GTFS backend currently provides:
-   *
-   * wait_minutes
-   * journey_minutes
-   * walking_minutes
-   * total_minutes
-   * score
-   *
-   * Therefore we use real GTFS values where available
-   * and retain the existing dashboard intelligence
-   * values for fields not currently provided by GTFS.
+   * These are intentionally labeled as
+   * prototype estimates because GTFS schedule
+   * data does not contain live fare/crowd data.
    */
-
-  const displayEta =
-    backendBestRoute
-      ? backendBestRoute.total_minutes
-      : recommendedLocalRoute.eta;
-
-  const displayCost =
-    backendBestRoute
+  const estimatedFare =
+    selectedRoute
       ? 20
-      : recommendedLocalRoute.cost;
+      : 0;
 
-  const displayScore =
-    backendBestRoute
+  const reliability =
+    selectedRoute
       ? Math.max(
-          0,
+          60,
           Math.min(
-            100,
-            Math.round(
-              100 -
-                backendBestRoute.total_minutes
-            )
+            98,
+            96 -
+              Math.round(
+                selectedRoute.wait_minutes *
+                  0.7
+              )
           )
         )
-      : recommendedLocalRoute.score;
+      : 0;
 
-  const displayReliability =
-    recommendedLocalRoute.reliability;
-
-  const displayTraffic =
-    recommendedLocalRoute.traffic;
-
-  const displayCrowd =
-    recommendedLocalRoute.crowd;
-
-  const displayDelayRisk =
-    recommendedLocalRoute.delayRisk;
+  const crowd =
+    selectedRoute
+      ? selectedRoute.wait_minutes <= 5
+        ? "Low"
+        : selectedRoute.wait_minutes <= 12
+          ? "Moderate"
+          : "High"
+      : "Unknown";
 
   /* ======================================================= */
-  /* MAIN UI */
+  /* UI */
   /* ======================================================= */
 
   return (
     <div className="min-h-screen bg-slate-50">
-
-      {/* =================================================== */}
-      {/* HEADER */}
-      {/* =================================================== */}
 
       <Header />
 
@@ -297,7 +279,7 @@ export default function DashboardPage() {
         <div className="mx-auto max-w-7xl">
 
           {/* ================================================= */}
-          {/* PAGE HEADER */}
+          {/* HEADER */}
           {/* ================================================= */}
 
           <div className="mb-7">
@@ -311,13 +293,13 @@ export default function DashboardPage() {
             </h1>
 
             <p className="mt-1 text-sm text-slate-500">
-              Let AI analyze the best way to reach your destination.
+              Find upcoming TGSRTC buses using real GTFS schedule data.
             </p>
 
           </div>
 
           {/* ================================================= */}
-          {/* ROUTE SEARCH */}
+          {/* SEARCH */}
           {/* ================================================= */}
 
           <RouteSearch
@@ -366,7 +348,7 @@ export default function DashboardPage() {
                   </p>
 
                   <p className="text-xs text-blue-700">
-                    Checking GTFS schedules and upcoming buses.
+                    Searching nearby stops and upcoming trips.
                   </p>
 
                 </div>
@@ -377,7 +359,7 @@ export default function DashboardPage() {
           )}
 
           {/* ================================================= */}
-          {/* ERROR / NOTICE */}
+          {/* ERROR */}
           {/* ================================================= */}
 
           {routeError && !routeLoading && (
@@ -392,7 +374,7 @@ export default function DashboardPage() {
                 <div>
 
                   <p className="text-sm font-bold text-amber-900">
-                    Route search notice
+                    No route found
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-amber-800">
@@ -407,7 +389,7 @@ export default function DashboardPage() {
           )}
 
           {/* ================================================= */}
-          {/* REAL GTFS RESULTS */}
+          {/* REAL TGSRTC RESULTS */}
           {/* ================================================= */}
 
           {backendRoutes.length > 0 && (
@@ -417,18 +399,26 @@ export default function DashboardPage() {
 
                 <div>
 
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Live TGSRTC Route Options
-                  </h2>
+                  <div className="flex items-center gap-2">
+
+                    <h2 className="text-lg font-bold text-slate-900">
+                      Upcoming TGSRTC Buses
+                    </h2>
+
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                      LIVE DATA
+                    </span>
+
+                  </div>
 
                   <p className="text-sm text-slate-500">
-                    Upcoming buses found from the deployed GTFS backend.
+                    Real upcoming trips from the GTFS schedule.
                   </p>
 
                 </div>
 
                 <span className="hidden rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 sm:block">
-                  {backendRoutes.length} routes found
+                  {backendRoutes.length} found
                 </span>
 
               </div>
@@ -438,138 +428,206 @@ export default function DashboardPage() {
                 {backendRoutes
                   .slice(0, 6)
                   .map(
-                    (item, index) => (
-                      <div
-                        key={`${item.trip_id}-${index}`}
-                        className={`rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                          index === 0
-                            ? "border-blue-300 ring-1 ring-blue-100"
-                            : "border-slate-200"
-                        }`}
-                      >
+                    (
+                      item,
+                      index
+                    ) => {
 
-                        {/* HEADER */}
+                      const selected =
+                        selectedRoute?.trip_id ===
+                        item.trip_id;
 
-                        <div className="flex items-start justify-between gap-3">
+                      return (
+                        <button
+                          key={
+                            item.trip_id
+                          }
+                          type="button"
+                          onClick={() =>
+                            setSelectedRouteId(
+                              item.trip_id
+                            )
+                          }
+                          className={`text-left rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                            selected
+                              ? "border-blue-400 ring-2 ring-blue-100"
+                              : "border-slate-200"
+                          }`}
+                        >
 
-                          <div>
+                          {/* TOP */}
 
-                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                              Bus Route
-                            </p>
+                          <div className="flex items-start justify-between gap-3">
 
-                            <h3 className="mt-1 text-xl font-black text-slate-900">
-                              {item.route_number}
-                            </h3>
+                            <div className="flex items-center gap-3">
 
-                          </div>
+                              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                                <Bus size={21} />
+                              </div>
 
-                          {index === 0 && (
-                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
-                              BEST MATCH
-                            </span>
-                          )}
+                              <div>
 
-                        </div>
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  TGSRTC ROUTE
+                                </p>
 
-                        {/* ROUTE */}
+                                <h3 className="mt-0.5 text-xl font-black text-slate-900">
+                                  {item.route_number}
+                                </h3>
 
-                        <div className="mt-4 space-y-2">
+                              </div>
 
-                          <div className="flex items-start justify-between gap-4 text-xs">
+                            </div>
 
-                            <span className="text-slate-500">
-                              Boarding
-                            </span>
-
-                            <span className="text-right font-semibold text-slate-800">
-                              {item.origin.stop_name}
-                            </span>
-
-                          </div>
-
-                          <div className="flex items-start justify-between gap-4 text-xs">
-
-                            <span className="text-slate-500">
-                              Destination
-                            </span>
-
-                            <span className="text-right font-semibold text-slate-800">
-                              {item.destination.stop_name}
-                            </span>
+                            {index === 0 && (
+                              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+                                NEXT BEST
+                              </span>
+                            )}
 
                           </div>
 
-                          <div className="flex items-center justify-between text-xs">
+                          {/* STOPS */}
 
-                            <span className="text-slate-500">
-                              Departure
+                          <div className="mt-4 space-y-3">
+
+                            <div className="flex items-start gap-2">
+
+                              <MapPin
+                                size={15}
+                                className="mt-0.5 shrink-0 text-blue-500"
+                              />
+
+                              <div>
+
+                                <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                  Boarding
+                                </p>
+
+                                <p className="text-xs font-bold text-slate-800">
+                                  {item.origin.stop_name}
+                                </p>
+
+                              </div>
+
+                            </div>
+
+                            <div className="flex items-start gap-2">
+
+                              <Navigation
+                                size={15}
+                                className="mt-0.5 shrink-0 text-emerald-500"
+                              />
+
+                              <div>
+
+                                <p className="text-[10px] font-semibold uppercase text-slate-400">
+                                  Destination
+                                </p>
+
+                                <p className="text-xs font-bold text-slate-800">
+                                  {item.destination.stop_name}
+                                </p>
+
+                              </div>
+
+                            </div>
+
+                          </div>
+
+                          {/* TIME */}
+
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+
+                            <div className="rounded-xl bg-slate-50 p-3">
+
+                              <p className="text-[10px] font-semibold text-slate-400">
+                                DEPARTURE
+                              </p>
+
+                              <p className="mt-1 text-sm font-black text-slate-900">
+                                {formatTime(
+                                  item.departure_time
+                                )}
+                              </p>
+
+                            </div>
+
+                            <div className="rounded-xl bg-slate-50 p-3">
+
+                              <p className="text-[10px] font-semibold text-slate-400">
+                                ARRIVAL
+                              </p>
+
+                              <p className="mt-1 text-sm font-black text-slate-900">
+                                {formatTime(
+                                  item.arrival_time
+                                )}
+                              </p>
+
+                            </div>
+
+                          </div>
+
+                          {/* METRICS */}
+
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+
+                            <div className="rounded-xl bg-blue-50 p-2.5 text-center">
+
+                              <p className="text-[9px] font-bold text-blue-500">
+                                WAIT
+                              </p>
+
+                              <p className="mt-1 text-sm font-black text-blue-700">
+                                {item.wait_minutes}m
+                              </p>
+
+                            </div>
+
+                            <div className="rounded-xl bg-slate-50 p-2.5 text-center">
+
+                              <p className="text-[9px] font-bold text-slate-400">
+                                TRIP
+                              </p>
+
+                              <p className="mt-1 text-sm font-black text-slate-800">
+                                {item.journey_minutes}m
+                              </p>
+
+                            </div>
+
+                            <div className="rounded-xl bg-emerald-50 p-2.5 text-center">
+
+                              <p className="text-[9px] font-bold text-emerald-500">
+                                TOTAL
+                              </p>
+
+                              <p className="mt-1 text-sm font-black text-emerald-700">
+                                {item.total_minutes}m
+                              </p>
+
+                            </div>
+
+                          </div>
+
+                          {/* STATUS */}
+
+                          <div className="mt-3 flex items-center justify-between">
+
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              {item.status}
                             </span>
 
-                            <span className="font-semibold text-slate-800">
-                              {item.departure_time}
+                            <span className="text-[10px] font-bold text-blue-600">
+                              Score {item.score.toFixed(1)}
                             </span>
 
                           </div>
 
-                          <div className="flex items-center justify-between text-xs">
-
-                            <span className="text-slate-500">
-                              Arrival
-                            </span>
-
-                            <span className="font-semibold text-slate-800">
-                              {item.arrival_time}
-                            </span>
-
-                          </div>
-
-                        </div>
-
-                        {/* METRICS */}
-
-                        <div className="mt-4 grid grid-cols-3 gap-2">
-
-                          <div className="rounded-xl bg-slate-50 p-3 text-center">
-
-                            <p className="text-[10px] font-semibold text-slate-400">
-                              WAIT
-                            </p>
-
-                            <p className="mt-1 text-sm font-black text-slate-900">
-                              {item.wait_minutes}m
-                            </p>
-
-                          </div>
-
-                          <div className="rounded-xl bg-slate-50 p-3 text-center">
-
-                            <p className="text-[10px] font-semibold text-slate-400">
-                              JOURNEY
-                            </p>
-
-                            <p className="mt-1 text-sm font-black text-slate-900">
-                              {item.journey_minutes}m
-                            </p>
-
-                          </div>
-
-                          <div className="rounded-xl bg-blue-50 p-3 text-center">
-
-                            <p className="text-[10px] font-semibold text-blue-500">
-                              TOTAL
-                            </p>
-
-                            <p className="mt-1 text-sm font-black text-blue-700">
-                              {item.total_minutes}m
-                            </p>
-
-                          </div>
-
-                        </div>
-
-                      </div>
-                    )
+                        </button>
+                      );
+                    }
                   )}
 
               </div>
@@ -581,63 +639,47 @@ export default function DashboardPage() {
           {/* STATS */}
           {/* ================================================= */}
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {selectedRoute && (
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
-            <StatCard
-              title="Average ETA"
-              value={`${displayEta} min`}
-              subtitle={
-                backendBestRoute
-                  ? "GTFS-based route estimate"
-                  : "AI estimated journey time"
-              }
-              icon={Clock3}
-            />
+              <StatCard
+                title="Total ETA"
+                value={`${eta} min`}
+                subtitle="Wait + journey time"
+                icon={Clock3}
+              />
 
-            <StatCard
-              title="Estimated Cost"
-              value={
-                displayCost === 0
-                  ? "Free"
-                  : `₹${displayCost}`
-              }
-              subtitle={
-                backendBestRoute
-                  ? "Prototype TGSRTC estimate"
-                  : "Based on selected route"
-              }
-              icon={IndianRupee}
-            />
+              <StatCard
+                title="Estimated Fare"
+                value={`₹${estimatedFare}`}
+                subtitle="Prototype fare estimate"
+                icon={IndianRupee}
+              />
 
-            <StatCard
-              title="AI Score"
-              value={`${displayScore}/100`}
-              subtitle={
-                backendBestRoute
-                  ? "GTFS route optimization score"
-                  : "Multi-factor route score"
-              }
-              icon={Activity}
-            />
+              <StatCard
+                title="AI Score"
+                value={`${aiScore}/100`}
+                subtitle="Route optimization score"
+                icon={Activity}
+              />
 
-            <StatCard
-              title="Reliability"
-              value={`${displayReliability}%`}
-              subtitle={`${displayDelayRisk} delay risk`}
-              icon={TrendingDown}
-            />
+              <StatCard
+                title="Reliability"
+                value={`${reliability}%`}
+                subtitle={`${crowd} crowd estimate`}
+                icon={TrendingDown}
+              />
 
-          </div>
+            </div>
+          )}
 
           {/* ================================================= */}
-          {/* RECOMMENDATION + MAP */}
+          {/* BEST ROUTE + MAP */}
           {/* ================================================= */}
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
 
-            {/* ================================================= */}
-            {/* AI RECOMMENDATION */}
-            {/* ================================================= */}
+            {/* RECOMMENDATION */}
 
             <section>
 
@@ -646,17 +688,11 @@ export default function DashboardPage() {
                 <div>
 
                   <h2 className="text-lg font-bold text-slate-900">
-                    {selectedMode
-                      ? "Selected Route"
-                      : "Best Route For You"}
+                    Best Route For You
                   </h2>
 
                   <p className="text-sm text-slate-500">
-                    {backendBestRoute
-                      ? `TGSRTC route ${backendBestRoute.route_number} is currently available.`
-                      : selectedMode
-                        ? "Dashboard updated for your selected transport option"
-                        : "Selected using SmartCommute's route scoring engine"}
+                    Based on upcoming TGSRTC schedule data.
                   </p>
 
                 </div>
@@ -665,21 +701,167 @@ export default function DashboardPage() {
 
                   <span className="h-2 w-2 rounded-full bg-emerald-500" />
 
-                  AI Online
+                  GTFS Online
 
                 </div>
 
               </div>
 
-              <AIRecommendation
-                route={recommendedLocalRoute}
-              />
+              {selectedRoute ? (
+                <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm">
+
+                  <div className="flex items-start justify-between gap-4">
+
+                    <div className="flex items-start gap-3">
+
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-white">
+                        <Bus size={23} />
+                      </div>
+
+                      <div>
+
+                        <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                          AI RECOMMENDATION
+                        </p>
+
+                        <h3 className="mt-1 text-2xl font-black text-slate-900">
+                          TGSRTC{" "}
+                          {selectedRoute.route_number}
+                        </h3>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          {selectedRoute.trip_name}
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                    <div className="rounded-xl bg-blue-50 px-4 py-3 text-center">
+
+                      <p className="text-[10px] font-bold text-blue-500">
+                        SCORE
+                      </p>
+
+                      <p className="text-2xl font-black text-blue-700">
+                        {aiScore}
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-3 gap-3">
+
+                    <div className="rounded-xl bg-slate-50 p-4">
+
+                      <p className="text-[10px] font-bold text-slate-400">
+                        WAIT
+                      </p>
+
+                      <p className="mt-1 text-lg font-black text-slate-900">
+                        {wait} min
+                      </p>
+
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-4">
+
+                      <p className="text-[10px] font-bold text-slate-400">
+                        JOURNEY
+                      </p>
+
+                      <p className="mt-1 text-lg font-black text-slate-900">
+                        {journey} min
+                      </p>
+
+                    </div>
+
+                    <div className="rounded-xl bg-emerald-50 p-4">
+
+                      <p className="text-[10px] font-bold text-emerald-500">
+                        TOTAL
+                      </p>
+
+                      <p className="mt-1 text-lg font-black text-emerald-700">
+                        {eta} min
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  <div className="mt-4 rounded-xl bg-blue-50 p-4">
+
+                    <p className="text-xs font-bold text-blue-900">
+                      Why this route?
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-blue-800/80">
+                      SmartCommute selected this upcoming bus using wait time, journey duration and the GTFS route score.
+                    </p>
+
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+
+                    <div className="rounded-xl border border-slate-100 p-3">
+
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        DEPARTURE
+                      </p>
+
+                      <p className="mt-1 text-sm font-black text-slate-800">
+                        {formatTime(
+                          selectedRoute.departure_time
+                        )}
+                      </p>
+
+                    </div>
+
+                    <div className="rounded-xl border border-slate-100 p-3">
+
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        ARRIVAL
+                      </p>
+
+                      <p className="mt-1 text-sm font-black text-slate-800">
+                        {formatTime(
+                          selectedRoute.arrival_time
+                        )}
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                </div>
+              ) : (
+                <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-slate-200 bg-white p-6">
+
+                  <div className="text-center">
+
+                    <Bus
+                      size={35}
+                      className="mx-auto text-slate-300"
+                    />
+
+                    <p className="mt-3 text-sm font-bold text-slate-700">
+                      Search for a route
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-400">
+                      Upcoming TGSRTC recommendations will appear here.
+                    </p>
+
+                  </div>
+
+                </div>
+              )}
 
             </section>
 
-            {/* ================================================= */}
             {/* MAP */}
-            {/* ================================================= */}
 
             <section>
 
@@ -690,7 +872,7 @@ export default function DashboardPage() {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  Real road route between your locations
+                  Route between your selected locations.
                 </p>
 
               </div>
@@ -706,90 +888,6 @@ export default function DashboardPage() {
           </div>
 
           {/* ================================================= */}
-          {/* TRANSPORT OPTIONS */}
-          {/* ================================================= */}
-
-          <section className="mt-8">
-
-            <div className="mb-4 flex items-end justify-between">
-
-              <div>
-
-                <h2 className="text-lg font-bold text-slate-900">
-                  Transport Options
-                </h2>
-
-                <p className="text-sm text-slate-500">
-                  Click an option to analyze that journey
-                </p>
-
-              </div>
-
-              <span className="hidden text-xs font-semibold text-slate-400 sm:block">
-                {backendRoutes.length > 0
-                  ? `${backendRoutes.length} TGSRTC routes analyzed`
-                  : `${localRoutes.length} options analyzed`}
-              </span>
-
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-
-              {localRoutes.map(
-                (item, index) => (
-                  <TransportCard
-                    key={item.mode}
-                    type={item.mode}
-                    title={
-                      index === 0 &&
-                      backendBestRoute
-                        ? `TGSRTC ${backendBestRoute.route_number}`
-                        : item.title
-                    }
-                    eta={
-                      index === 0 &&
-                      backendBestRoute
-                        ? `${backendBestRoute.total_minutes} min`
-                        : `${item.eta} min`
-                    }
-                    cost={
-                      index === 0 &&
-                      backendBestRoute
-                        ? "₹20"
-                        : item.cost === 0
-                          ? "Free"
-                          : `₹${item.cost}`
-                    }
-                    crowd={
-                      item.crowd === 0
-                        ? "None"
-                        : item.crowd < 40
-                          ? "Low"
-                          : item.crowd < 70
-                            ? "Moderate"
-                            : "High"
-                    }
-                    recommended={
-                      index === 0
-                    }
-                    selected={
-                      recommendedLocalRoute.mode ===
-                      item.mode
-                    }
-                    onClick={() =>
-                      handleTransportSelect(
-                        item.mode
-                      )
-                    }
-                  />
-                )
-              )}
-
-            </div>
-
-          </section>
-
-          {/* ================================================= */}
           {/* LIVE TRANSPORT */}
           {/* ================================================= */}
 
@@ -802,302 +900,181 @@ export default function DashboardPage() {
           {/* ROUTE INTELLIGENCE */}
           {/* ================================================= */}
 
-          <section className="mt-8">
+          {selectedRoute && (
+            <section className="mt-8">
 
-            <div className="mb-4">
+              <div className="mb-4">
 
-              <h2 className="text-lg font-bold text-slate-900">
-                Route Intelligence
-              </h2>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Route Intelligence
+                </h2>
 
-              <p className="text-sm text-slate-500">
-                Factors considered by SmartCommute AI
-              </p>
-
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-
-              {/* TRAFFIC */}
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-
-                <div className="flex items-center justify-between">
-
-                  <p className="text-xs font-semibold text-slate-500">
-                    Traffic
-                  </p>
-
-                  <span className="text-xs font-bold text-slate-700">
-                    {displayTraffic}%
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-
-                  <div
-                    className="h-full rounded-full bg-blue-500 transition-all duration-500"
-                    style={{
-                      width: `${displayTraffic}%`,
-                    }}
-                  />
-
-                </div>
-
-                <p className="mt-2 text-[11px] text-slate-400">
-                  Current traffic impact
+                <p className="text-sm text-slate-500">
+                  Current factors used for this recommendation.
                 </p>
 
               </div>
 
-              {/* CROWD */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
 
-                <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between">
 
-                  <p className="text-xs font-semibold text-slate-500">
-                    Crowd Level
-                  </p>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Wait Time
+                    </p>
 
-                  <span className="text-xs font-bold text-slate-700">
-                    {displayCrowd}%
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-
-                  <div
-                    className="h-full rounded-full bg-purple-500 transition-all duration-500"
-                    style={{
-                      width: `${displayCrowd}%`,
-                    }}
-                  />
-
-                </div>
-
-                <p className="mt-2 text-[11px] text-slate-400">
-                  Predicted passenger density
-                </p>
-
-              </div>
-
-              {/* RELIABILITY */}
-
-              <div className="rounded-2xl border border-slate-200 bg-white p-5">
-
-                <div className="flex items-center justify-between">
-
-                  <p className="text-xs font-semibold text-slate-500">
-                    Reliability
-                  </p>
-
-                  <span className="text-xs font-bold text-slate-700">
-                    {displayReliability}%
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                    style={{
-                      width: `${displayReliability}%`,
-                    }}
-                  />
-
-                </div>
-
-                <p className="mt-2 text-[11px] text-slate-400">
-                  Expected journey reliability
-                </p>
-
-              </div>
-
-              {/* AI SCORE */}
-
-              <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5">
-
-                <div className="flex items-center justify-between">
-
-                  <p className="text-xs font-semibold text-blue-600">
-                    AI Score
-                  </p>
-
-                  <span className="text-xs font-black text-blue-700">
-                    {displayScore}/100
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
-
-                  <div
-                    className="h-full rounded-full bg-blue-600 transition-all duration-500"
-                    style={{
-                      width: `${displayScore}%`,
-                    }}
-                  />
-
-                </div>
-
-                <p className="mt-2 text-[11px] text-blue-600/70">
-                  Combined route optimization score
-                </p>
-
-              </div>
-
-            </div>
-
-          </section>
-
-          {/* ================================================= */}
-          {/* SMART RECOMMENDATION */}
-          {/* ================================================= */}
-
-          <section className="mt-8">
-
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
-                  <Activity size={19} />
-                </div>
-
-                <div className="flex-1">
-
-                  <p className="text-sm font-bold text-emerald-900">
-                    SmartCommute AI Recommendation
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-emerald-800/80">
-
-                    {backendBestRoute ? (
-                      <>
-                        The next available TGSRTC route is{" "}
-                        <strong>
-                          {backendBestRoute.route_number}
-                        </strong>
-                        . It departs from{" "}
-                        <strong>
-                          {backendBestRoute.origin.stop_name}
-                        </strong>{" "}
-                        at{" "}
-                        <strong>
-                          {backendBestRoute.departure_time}
-                        </strong>{" "}
-                        and reaches{" "}
-                        <strong>
-                          {backendBestRoute.destination.stop_name}
-                        </strong>{" "}
-                        at{" "}
-                        <strong>
-                          {backendBestRoute.arrival_time}
-                        </strong>
-                        .
-                      </>
-                    ) : selectedMode ? (
-                      <>
-                        You selected{" "}
-                        <strong>
-                          {recommendedLocalRoute.title}
-                        </strong>
-                        . SmartCommute is now showing
-                        the analysis for this transport
-                        option.
-                      </>
-                    ) : (
-                      <>
-                        SmartCommute recommends{" "}
-                        <strong>
-                          {recommendedLocalRoute.title}
-                        </strong>{" "}
-                        with an overall score of{" "}
-                        <strong>
-                          {recommendedLocalRoute.score}/100
-                        </strong>
-                        .
-                      </>
-                    )}
-
-                  </p>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-
-                    <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {backendBestRoute
-                        ? `${backendBestRoute.total_minutes} min total`
-                        : `${recommendedLocalRoute.eta} min ETA`}
-                    </span>
-
-                    <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {displayCost === 0
-                        ? "Free"
-                        : `₹${displayCost}`}
-                    </span>
-
-                    <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {displayDelayRisk} delay risk
-                    </span>
-
-                    <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {displayReliability}% reliable
+                    <span className="text-xs font-bold text-slate-700">
+                      {wait} min
                     </span>
 
                   </div>
 
-                </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
 
-              </div>
+                    <div
+                      className="h-full rounded-full bg-blue-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          wait * 5
+                        )}%`,
+                      }}
+                    />
 
-            </div>
+                  </div>
 
-          </section>
-
-          {/* ================================================= */}
-          {/* COMMUTE ALERT */}
-          {/* ================================================= */}
-
-          <section className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
-              <div className="flex items-start gap-3">
-
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-                  <Activity size={19} />
-                </div>
-
-                <div>
-
-                  <p className="text-sm font-bold text-amber-900">
-                    Commute Alert
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-amber-800/80">
-
-                    {displayTraffic > 70
-                      ? "Heavy traffic detected on the selected route. Consider checking alternative transport options."
-                      : displayTraffic > 50
-                        ? "Moderate traffic is affecting the current journey. SmartCommute has considered this in the route score."
-                        : "Traffic conditions are currently favorable for the selected route."}
-
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Time until bus departure
                   </p>
 
                 </div>
 
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+
+                  <div className="flex items-center justify-between">
+
+                    <p className="text-xs font-semibold text-slate-500">
+                      Journey
+                    </p>
+
+                    <span className="text-xs font-bold text-slate-700">
+                      {journey} min
+                    </span>
+
+                  </div>
+
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+
+                    <div
+                      className="h-full rounded-full bg-purple-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          journey * 3
+                        )}%`,
+                      }}
+                    />
+
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Scheduled bus journey
+                  </p>
+
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+
+                  <div className="flex items-center justify-between">
+
+                    <p className="text-xs font-semibold text-slate-500">
+                      Reliability
+                    </p>
+
+                    <span className="text-xs font-bold text-slate-700">
+                      {reliability}%
+                    </span>
+
+                  </div>
+
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+
+                    <div
+                      className="h-full rounded-full bg-emerald-500"
+                      style={{
+                        width: `${reliability}%`,
+                      }}
+                    />
+
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Prototype schedule-based estimate
+                  </p>
+
+                </div>
+
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5">
+
+                  <div className="flex items-center justify-between">
+
+                    <p className="text-xs font-semibold text-blue-600">
+                      AI Score
+                    </p>
+
+                    <span className="text-xs font-black text-blue-700">
+                      {aiScore}/100
+                    </span>
+
+                  </div>
+
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
+
+                    <div
+                      className="h-full rounded-full bg-blue-600"
+                      style={{
+                        width: `${aiScore}%`,
+                      }}
+                    />
+
+                  </div>
+
+                  <p className="mt-2 text-[11px] text-blue-600/70">
+                    Lower travel-time score converted to 0–100
+                  </p>
+
+                </div>
+
               </div>
 
-              <button
-                type="button"
-                className="whitespace-nowrap rounded-lg bg-white px-4 py-2 text-xs font-bold text-amber-700 shadow-sm ring-1 ring-amber-200 transition hover:bg-amber-100"
-              >
-                View Alternative
-              </button>
+            </section>
+          )}
+
+          {/* ================================================= */}
+          {/* SMARTCOMMUTE NOTE */}
+          {/* ================================================= */}
+
+          <section className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+
+            <div className="flex items-start gap-3">
+
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                <Activity size={19} />
+              </div>
+
+              <div>
+
+                <p className="text-sm font-bold text-emerald-900">
+                  SmartCommute AI
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-emerald-800/80">
+                  Route recommendations are currently powered by the TGSRTC GTFS schedule. Live GPS, real-time traffic and passenger-count data are separate prototype modules.
+                </p>
+
+              </div>
 
             </div>
 

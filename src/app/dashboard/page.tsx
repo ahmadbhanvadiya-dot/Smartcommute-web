@@ -226,6 +226,13 @@ export default function DashboardPage() {
     selectedRoute?.journey_minutes ??
     0;
 
+  const walking =
+    selectedRoute?.walking_minutes ??
+    0;
+
+  const optimizationScore =
+    selectedRoute?.score ?? 0;
+
   const aiScore =
     selectedRoute
       ? getRouteScore(selectedRoute)
@@ -571,7 +578,7 @@ export default function DashboardPage() {
 
                           {/* METRICS */}
 
-                          <div className="mt-3 grid grid-cols-3 gap-2">
+                          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
 
                             <div className="rounded-xl bg-blue-50 p-2.5 text-center">
 
@@ -593,6 +600,18 @@ export default function DashboardPage() {
 
                               <p className="mt-1 text-sm font-black text-slate-800">
                                 {item.journey_minutes}m
+                              </p>
+
+                            </div>
+
+                            <div className="rounded-xl bg-amber-50 p-2.5 text-center">
+
+                              <p className="text-[9px] font-bold text-amber-500">
+                                WALK
+                              </p>
+
+                              <p className="mt-1 text-sm font-black text-amber-700">
+                                {item.walking_minutes ?? 0}m
                               </p>
 
                             </div>
@@ -620,7 +639,7 @@ export default function DashboardPage() {
                             </span>
 
                             <span className="text-[10px] font-bold text-blue-600">
-                              Score {item.score.toFixed(1)}
+                              Optimization {item.score.toFixed(1)}
                             </span>
 
                           </div>
@@ -751,7 +770,7 @@ export default function DashboardPage() {
 
                   </div>
 
-                  <div className="mt-6 grid grid-cols-3 gap-3">
+                  <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
 
                     <div className="rounded-xl bg-slate-50 p-4">
 
@@ -777,6 +796,18 @@ export default function DashboardPage() {
 
                     </div>
 
+                    <div className="rounded-xl bg-amber-50 p-4">
+
+                      <p className="text-[10px] font-bold text-amber-500">
+                        WALK
+                      </p>
+
+                      <p className="mt-1 text-lg font-black text-amber-700">
+                        {walking} min
+                      </p>
+
+                    </div>
+
                     <div className="rounded-xl bg-emerald-50 p-4">
 
                       <p className="text-[10px] font-bold text-emerald-500">
@@ -798,7 +829,7 @@ export default function DashboardPage() {
                     </p>
 
                     <p className="mt-1 text-xs leading-5 text-blue-800/80">
-                      SmartCommute selected this upcoming bus using wait time, journey duration and the GTFS route score.
+                      SmartCommute ranked this upcoming bus using wait time, journey duration and walking time from the GTFS-connected route data.
                     </p>
 
                   </div>

@@ -1718,13 +1718,6 @@ def search_routes(
     # Remove duplicate route/trip combinations
     # --------------------------------------------------------
 
-    candidates_df = candidates_df.sort_values(
-        [
-            "wait_minutes",
-            "journey_minutes",
-        ]
-    )
-
     candidates_df = candidates_df.drop_duplicates(
         subset=[
             "route_id",
@@ -1775,15 +1768,29 @@ def search_routes(
         ]
 
         # ----------------------------------------------------
-        # Simple route score
+        # SMART ROUTE OPTIMIZATION SCORE
         # ----------------------------------------------------
+        # Lower score = better route.
+        # Weighting: 35% wait, 45% journey, 20% walking.
+        # Walking estimate: 12 minutes per kilometer.
+
+        wait_minutes = float(row["wait_minutes"])
+        journey_minutes = float(row["journey_minutes"])
+
+        origin_walk_km = float(origin_data["distance_km"])
+        destination_walk_km = float(destination_data["distance_km"])
+
+        walking_minutes = (
+            origin_walk_km + destination_walk_km
+        ) * 12
+        walking_minutes = round(walking_minutes, 2)
 
         score = (
-            row["wait_minutes"] * 1.5
-            + row["journey_minutes"]
-            + origin_data["distance_km"] * 10
-            + destination_data["distance_km"] * 10
+            wait_minutes * 0.35
+            + journey_minutes * 0.45
+            + walking_minutes * 0.20
         )
+        score = round(score, 2)
 
         results.append(
             {
@@ -1873,6 +1880,10 @@ def search_routes(
                     row["journey_minutes"]
                 ),
 
+                "walking_minutes": round(
+                    walking_minutes
+                ),
+
                 "total_minutes": int(
                     row["total_minutes"]
                 ),
@@ -1882,9 +1893,32 @@ def search_routes(
                     2,
                 ),
 
+                "recommendation_factors": {
+                    "wait_minutes": int(wait_minutes),
+                    "journey_minutes": int(journey_minutes),
+                    "walking_minutes": round(walking_minutes),
+                    "origin_walk_km": round(origin_walk_km, 3),
+                    "destination_walk_km": round(destination_walk_km, 3),
+                },
+
                 "status": "Scheduled",
             }
         )
+
+    # --------------------------------------------------------
+    # SMART RANKING
+    # --------------------------------------------------------
+    # Lower score = better route.
+
+    results.sort(
+        key=lambda route: (
+            route["score"],
+            route["total_minutes"],
+            route["wait_minutes"],
+        )
+    )
+
+    results = results[:limit]
 
     return {
         "origin": {
@@ -1904,6 +1938,16 @@ def search_routes(
         "search_radius_km": radius_km,
 
         "count": len(results),
+
+        "ranking": {
+            "method": "weighted_route_optimization",
+            "lower_score_is_better": True,
+            "weights": {
+                "wait_time": 0.35,
+                "journey_time": 0.45,
+                "walking_time": 0.20,
+            },
+        },
 
         "routes": results,
     }

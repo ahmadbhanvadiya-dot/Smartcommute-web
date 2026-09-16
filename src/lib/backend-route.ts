@@ -28,9 +28,11 @@ export interface BackendRoute {
 
   wait_minutes: number;
   journey_minutes: number;
+  walking_minutes: number;
   total_minutes: number;
 
   score: number;
+
   status: string;
 }
 

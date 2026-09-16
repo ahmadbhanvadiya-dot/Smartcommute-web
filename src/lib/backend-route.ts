@@ -37,12 +37,6 @@ export interface BackendRoute {
 }
 
 export interface BackendRouteResponse {
-  /*
-   * Coordinates returned by FastAPI.
-   *
-   * These are the coordinates used for the
-   * GTFS route search.
-   */
   origin: {
     latitude: number;
     longitude: number;
@@ -53,12 +47,6 @@ export interface BackendRouteResponse {
     longitude: number;
   };
 
-  /*
-   * Actual coordinates requested by the user.
-   *
-   * These are kept separately so the map can show
-   * the actual starting point and destination.
-   */
   requested_origin: {
     latitude: number;
     longitude: number;
@@ -74,181 +62,130 @@ export interface BackendRouteResponse {
   count: number;
 
   routes: BackendRoute[];
+
+  message?: string;
 }
 
-/*
- * =========================================================
- * KNOWN LOCATIONS
- * =========================================================
- *
- * These are demo-known Hyderabad locations.
- *
- * Known locations are resolved locally first so the
- * application does not depend on a third-party geocoder
- * for common demo searches.
- */
-
-const KNOWN_LOCATIONS: Record<
-  string,
-  LocationCoordinates
-> = {
-  mehdipatnam: {
-    lat: 17.3952,
-    lng: 78.4392,
-  },
-
-  koti: {
-    lat: 17.3831,
-    lng: 78.4828,
-  },
-
-  "koti bus station": {
-    lat: 17.3831,
-    lng: 78.4828,
-  },
-
-  "koti medical college": {
-    lat: 17.38273,
-    lng: 78.48243,
-  },
-
-  "lords institute of engineering": {
-    lat: 17.342264,
-    lng: 78.367449,
-  },
-
-  "lords institute of engineering and technology": {
-    lat: 17.342264,
-    lng: 78.367449,
-  },
-
-  "lords institute of engineering & technology": {
-    lat: 17.342264,
-    lng: 78.367449,
-  },
-
-  "lords college": {
-    lat: 17.342264,
-    lng: 78.367449,
-  },
-
-  "himayath sagar": {
-  lat: 17.342264,
-  lng: 78.367449,
-},
-
-  "appa junction": {
-    lat: 17.342264,
-    lng: 78.367449,
-  },
-};
-
-/*
- * =========================================================
- * NORMALIZE LOCATION
- * =========================================================
- */
-
-function normalizeLocation(
-  value: string
-): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[.,]/g, "")
-    .replace(/\s+/g, " ");
+export interface LocationSearchResult {
+  name: string;
+  latitude: number;
+  longitude: number;
+  display_name: string;
+  source: string;
 }
 
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://127.0.0.1:8000";
+
 /*
  * =========================================================
- * RESOLVE LOCATION
+ * REAL LOCATION SEARCH
  * =========================================================
+ *
+ * The frontend no longer talks directly to Nominatim.
+ *
+ * Instead:
+ *
+ * Browser
+ *   ↓
+ * FastAPI /api/locations/search
+ *   ↓
+ * OpenStreetMap Nominatim
+ *
+ * This keeps geocoding behind our backend and gives us one
+ * source of truth for coordinates.
  */
 
-export async function resolveLocation(
+export async function searchLocation(
   location: string
 ): Promise<LocationCoordinates> {
-  const normalized =
-    normalizeLocation(location);
+  const query = location.trim();
 
-  /*
-   * -------------------------------------------------------
-   * 1. Exact known-location match
-   * -------------------------------------------------------
-   */
-
-  if (KNOWN_LOCATIONS[normalized]) {
-    return KNOWN_LOCATIONS[normalized];
+  if (!query) {
+    throw new Error("Please enter a location.");
   }
-
-  /*
-   * -------------------------------------------------------
-   * 2. Partial known-location match
-   * -------------------------------------------------------
-   *
-   * Examples:
-   *
-   * "Lords Institute"
-   * "Lords Institute of Engineering"
-   * "Lords College"
-   */
-
-  const matchingKey =
-    Object.keys(KNOWN_LOCATIONS).find(
-      (key) =>
-        normalized.includes(key) ||
-        key.includes(normalized)
-    );
-
-  if (matchingKey) {
-    return KNOWN_LOCATIONS[matchingKey];
-  }
-
-  /*
-   * -------------------------------------------------------
-   * 3. Last-resort Nominatim geocoding
-   * -------------------------------------------------------
-   */
 
   const params = new URLSearchParams({
-    q: `${location}, Hyderabad, Telangana, India`,
-    format: "json",
-    limit: "1",
-    countrycodes: "in",
+    q: query,
   });
 
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/search?${params.toString()}`,
-    {
-      headers: {
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    }
+  const url =
+    `${API_BASE}/api/locations/search?${params.toString()}`;
+
+  console.log(
+    "SmartCommute location request:",
+    url
   );
 
-  if (!response.ok) {
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+    });
+  } catch (error) {
+    console.error(
+      "Location API network error:",
+      error
+    );
+
     throw new Error(
-      `Unable to resolve "${location}".`
+      "Unable to connect to the SmartCommute location service."
     );
   }
 
-  const results =
-    await response.json();
+  const text =
+    await response.text().catch(() => "");
+
+  if (!response.ok) {
+    let message =
+      `Location search failed (${response.status}).`;
+
+    try {
+      const errorData = JSON.parse(text);
+
+      if (
+        typeof errorData?.detail === "string"
+      ) {
+        message = errorData.detail;
+      } else if (
+        typeof errorData?.message === "string"
+      ) {
+        message = errorData.message;
+      }
+    } catch {
+      if (text) {
+        message = text;
+      }
+    }
+
+    throw new Error(message);
+  }
+
+  let data: LocationSearchResult;
+
+  try {
+    data = JSON.parse(text) as LocationSearchResult;
+  } catch {
+    throw new Error(
+      "Location service returned an invalid response."
+    );
+  }
 
   if (
-    !Array.isArray(results) ||
-    results.length === 0
+    typeof data.latitude !== "number" ||
+    typeof data.longitude !== "number"
   ) {
     throw new Error(
-      `Location "${location}" could not be found.`
+      `Location "${query}" could not be resolved.`
     );
   }
 
   return {
-    lat: Number(results[0].lat),
-    lng: Number(results[0].lon),
+    lat: data.latitude,
+    lng: data.longitude,
   };
 }
 
@@ -257,10 +194,15 @@ export async function resolveLocation(
  * SEARCH BACKEND ROUTES
  * =========================================================
  *
- * Sends the resolved coordinates to FastAPI.
+ * User enters:
  *
- * FastAPI then searches the TGSRTC GTFS dataset and returns
- * upcoming routes.
+ *   Abids → Attapur
+ *
+ * We resolve both names through our FastAPI location API,
+ * then send only coordinates to the GTFS route-search API.
+ *
+ * If the caller already has the user's GPS coordinates,
+ * those coordinates are used for the origin instead.
  */
 
 export async function searchBackendRoutes(
@@ -271,32 +213,43 @@ export async function searchBackendRoutes(
     longitude: number;
   }
 ): Promise<BackendRouteResponse> {
+  const cleanFrom = from.trim();
+  const cleanTo = to.trim();
+
+  if (!cleanFrom) {
+    throw new Error(
+      "Please enter a starting location."
+    );
+  }
+
+  if (!cleanTo) {
+    throw new Error(
+      "Please enter a destination."
+    );
+  }
+
   /*
-   * Resolve both requested locations.
+   * Resolve both locations.
+   *
+   * The origin can optionally come directly from the
+   * browser's GPS position when "Use my current location"
+   * is selected.
    */
 
   const [origin, destination] =
-  await Promise.all([
-    fromCoordinates
-      ? Promise.resolve({
-          lat: fromCoordinates.latitude,
-          lng: fromCoordinates.longitude,
-        })
-      : resolveLocation(from),
+    await Promise.all([
+      fromCoordinates
+        ? Promise.resolve({
+            lat: fromCoordinates.latitude,
+            lng: fromCoordinates.longitude,
+          })
+        : searchLocation(cleanFrom),
 
-    resolveLocation(to),
-  ]);
-
-  /*
-   * Backend URL.
-   */
-
-  const apiBase =
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://127.0.0.1:8000";
+      searchLocation(cleanTo),
+    ]);
 
   /*
-   * Query parameters expected by FastAPI.
+   * Build the GTFS route-search request.
    */
 
   const params = new URLSearchParams({
@@ -311,7 +264,7 @@ export async function searchBackendRoutes(
   });
 
   const url =
-    `${apiBase}/api/routes/search?` +
+    `${API_BASE}/api/routes/search?` +
     params.toString();
 
   console.log(
@@ -319,47 +272,84 @@ export async function searchBackendRoutes(
     url
   );
 
-  /*
-   * Request FastAPI.
-   */
+  let response: Response;
 
-  const response = await fetch(url, {
-    method: "GET",
-    cache: "no-store",
-  });
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+    });
+  } catch (error) {
+    console.error(
+      "Route API network error:",
+      error
+    );
+
+    throw new Error(
+      "Unable to connect to the SmartCommute route service."
+    );
+  }
+
+  const text =
+    await response.text().catch(() => "");
 
   /*
-   * Handle backend errors.
+   * Handle HTTP errors with the actual backend message.
    */
 
   if (!response.ok) {
-    const text =
-      await response.text().catch(
-        () => ""
-      );
+    let message =
+      `Route API failed (${response.status}).`;
 
+    try {
+      const errorData = JSON.parse(text);
+
+      if (
+        typeof errorData?.detail === "string"
+      ) {
+        message = errorData.detail;
+      } else if (
+        typeof errorData?.message === "string"
+      ) {
+        message = errorData.message;
+      }
+    } catch {
+      if (text) {
+        message = text;
+      }
+    }
+
+    throw new Error(message);
+  }
+
+  /*
+   * Parse FastAPI response.
+   */
+
+  let data: BackendRouteResponse;
+
+  try {
+    data =
+      JSON.parse(text) as BackendRouteResponse;
+  } catch {
     throw new Error(
-      `Route API failed (${response.status}) ${
-        text || ""
-      }`
+      "Route service returned an invalid response."
     );
   }
 
   /*
-   * Parse backend response.
-   */
-
-  const data =
-    (await response.json()) as BackendRouteResponse;
-
-  /*
-   * IMPORTANT:
+   * Keep the user's actual coordinates separate from the
+   * nearest GTFS stop coordinates.
    *
-   * Keep the user's actual requested coordinates.
+   * This lets the map show:
    *
-   * The backend's origin/destination can represent
-   * nearby GTFS stops, while these represent the actual
-   * searched locations.
+   *   actual user location
+   *          ↓ walking
+   *   nearest bus stop
+   *          ↓ bus
+   *   destination bus stop
+   *          ↓ walking
+   *   actual destination
    */
 
   return {

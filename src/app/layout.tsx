@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-import Sidebar from "@/components/dashboard/Sidebar";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "SmartCommute AI",
   description:
-    "AI-powered smart transportation and commute optimization for students.",
+    "AI-powered smart transportation and logistics platform.",
 };
 
 export default function RootLayout({
@@ -17,8 +17,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Sidebar />
-        {children}
+        <AppShell>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

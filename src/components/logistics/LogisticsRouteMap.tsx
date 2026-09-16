@@ -32,7 +32,7 @@ interface LogisticsRoute {
   geometry: RouteGeometry;
 }
 
-interface LocationPoint {
+export interface LocationPoint {
   display_name: string;
   latitude: number;
   longitude: number;
@@ -128,7 +128,7 @@ export default function LogisticsRouteMap({
       <MapContainer
         center={defaultCenter}
         zoom={5}
-        scrollWheelZoom
+        scrollWheelZoom={true}
         className="h-full w-full"
       >
         <TileLayer
@@ -136,11 +136,17 @@ export default function LogisticsRouteMap({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <FitMap origin={origin} destination={destination} />
+        <FitMap
+          origin={origin}
+          destination={destination}
+        />
 
         {origin && (
           <Marker
-            position={[origin.latitude, origin.longitude]}
+            position={[
+              origin.latitude,
+              origin.longitude,
+            ]}
             icon={originIcon}
           >
             <Popup>
@@ -176,26 +182,36 @@ export default function LogisticsRouteMap({
             ([lng, lat]) => [lat, lng] as [number, number]
           );
 
-          const selected = route.route_id === selectedRouteId;
+          const selected =
+            route.route_id === selectedRouteId;
 
           return (
             <Polyline
               key={route.route_id}
               positions={positions}
               pathOptions={{
+                color: selected ? "#059669" : "#64748b",
                 weight: selected ? 7 : 4,
                 opacity: selected ? 0.95 : 0.35,
               }}
             >
               <Popup>
                 <strong>
-                  {selected ? "Selected Route" : "Alternative Route"}
+                  {selected
+                    ? "Selected Route"
+                    : "Alternative Route"}
                 </strong>
+
                 <br />
+
                 {route.distance_km} km
+
                 <br />
+
                 {route.duration_text}
+
                 <br />
+
                 ₹
                 {route.estimated_cost.estimated_total_inr.toLocaleString(
                   "en-IN"

@@ -2,189 +2,181 @@
 
 import { useState } from "react";
 import {
-  ArrowUpDown,
+  ArrowRight,
+  Loader2,
   MapPin,
-  Navigation,
   Search,
-  LocateFixed,
+  X,
 } from "lucide-react";
 
 interface RouteSearchProps {
-  onSearch?: (from: string, to: string) => void;
-
-  onUseCurrentLocation?: () => void;
-
-  locationLoading?: boolean;
+  onSearch: (from: string, to: string) => void;
 }
 
 export default function RouteSearch({
   onSearch,
-  onUseCurrentLocation,
-  locationLoading = false,
 }: RouteSearchProps) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+
+    const cleanFrom = from.trim();
+    const cleanTo = to.trim();
+
+    if (!cleanFrom || !cleanTo) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await onSearch(cleanFrom, cleanTo);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearFrom = () => setFrom("");
+  const clearTo = () => setTo("");
 
   const swapLocations = () => {
     setFrom(to);
     setTo(from);
   };
 
-  const handleSearch = () => {
-    if (!from.trim() || !to.trim()) {
-      return;
-    }
-
-    onSearch?.(
-      from.trim(),
-      to.trim()
-    );
-  };
-
-  const handleCurrentLocation = () => {
-    setFrom("Current Location");
-    onUseCurrentLocation?.();
-  };
-
   return (
-    <div className="overflow-hidden rounded-2xl bg-slate-900 p-6 text-white shadow-xl shadow-slate-900/10">
-
-      {/* HEADER */}
-      <div className="mb-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-400">
-          Smart Route Planner
-        </p>
-
-        <h2 className="mt-1 text-xl font-bold">
-          Where are you going?
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="mb-4">
+        <h2 className="text-base font-bold text-slate-900">
+          Plan your journey
         </h2>
 
-        <p className="mt-1 text-sm text-slate-400">
-          Find the best available public transport route.
+        <p className="mt-1 text-xs text-slate-500">
+          Search any place in Hyderabad
         </p>
       </div>
 
-      {/* ROUTE INPUTS */}
       <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto] lg:items-center">
-
         {/* FROM */}
-        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-
-          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <div className="relative">
+          <label className="mb-1.5 block text-xs font-semibold text-slate-600">
             From
           </label>
 
-          <div className="flex items-center gap-2">
-
+          <div className="relative">
             <MapPin
               size={17}
-              className="shrink-0 text-blue-400"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-600"
             />
 
             <input
               value={from}
-              onChange={(e) =>
-                setFrom(e.target.value)
+              onChange={(event) =>
+                setFrom(event.target.value)
               }
-              className="w-full bg-transparent text-sm font-medium text-white outline-none placeholder:text-slate-500"
-              placeholder="Starting location"
+              placeholder="Search starting place..."
+              className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
             />
 
+            {from && (
+              <button
+                type="button"
+                onClick={clearFrom}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                aria-label="Clear starting place"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
-
-          {/* CURRENT LOCATION */}
-          <button
-            type="button"
-            onClick={handleCurrentLocation}
-            disabled={locationLoading}
-            className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-400 transition hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <LocateFixed size={14} />
-
-            {locationLoading
-              ? "Finding your location..."
-              : "Use my current location"}
-          </button>
-
         </div>
 
         {/* SWAP */}
         <button
-          onClick={swapLocations}
           type="button"
-          className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10"
+          onClick={swapLocations}
+          className="mt-5 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-600"
           title="Swap locations"
         >
-          <ArrowUpDown size={17} />
+          <ArrowRight size={17} />
         </button>
 
-        {/* DESTINATION */}
-        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-
-          <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Destination
+        {/* TO */}
+        <div className="relative">
+          <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+            To
           </label>
 
-          <div className="flex items-center gap-2">
-
-            <Navigation
+          <div className="relative">
+            <MapPin
               size={17}
-              className="shrink-0 text-emerald-400"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600"
             />
 
             <input
               value={to}
-              onChange={(e) =>
-                setTo(e.target.value)
+              onChange={(event) =>
+                setTo(event.target.value)
               }
-              className="w-full bg-transparent text-sm font-medium text-white outline-none placeholder:text-slate-500"
-              placeholder="Where do you want to go?"
+              placeholder="Search destination..."
+              className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
             />
 
+            {to && (
+              <button
+                type="button"
+                onClick={clearTo}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                aria-label="Clear destination"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
-
         </div>
 
         {/* SEARCH */}
         <button
-          type="button"
-          onClick={handleSearch}
+          type="submit"
           disabled={
+            loading ||
             !from.trim() ||
             !to.trim()
           }
-          className="flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-5 flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-
-          <Search size={17} />
-
-          Find Route
-
+          {loading ? (
+            <>
+              <Loader2
+                size={17}
+                className="animate-spin"
+              />
+              Searching
+            </>
+          ) : (
+            <>
+              <Search size={17} />
+              Find Routes
+            </>
+          )}
         </button>
-
       </div>
 
-      {/* FEATURES */}
-      <div className="mt-5 flex flex-wrap gap-4 text-xs text-slate-400">
+      <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-400">
+        <MapPin size={13} />
 
         <span>
-          ✓ GTFS route data
+          Powered by OpenStreetMap + TGSRTC GTFS
         </span>
-
-        <span>
-          ✓ Route optimization
-        </span>
-
-        <span>
-          ✓ Live transport
-        </span>
-
-        <span>
-          ✓ Smart ETA
-        </span>
-
       </div>
-
-    </div>
+    </form>
   );
 }

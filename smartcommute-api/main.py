@@ -2,6 +2,7 @@ from pathlib import Path
 from math import radians, sin, cos, sqrt, atan2
 from functools import lru_cache
 from datetime import datetime
+from pydantic import BaseModel, Field
 import json
 import urllib.parse
 import urllib.request
@@ -15,6 +16,11 @@ from fastapi import (
 )
 
 from fastapi.middleware.cors import CORSMiddleware
+
+from services.logistics_router import (
+    VEHICLES,
+    build_logistics_routes,
+)
 
 
 # ============================================================
@@ -2525,6 +2531,164 @@ def live_vehicles():
         "source": "GTFS schedule simulation",
         "vehicles": live_vehicles,
     }
+
+# ============================================================
+# LOGISTICS ROUTE PLANNER
+# ============================================================
+
+
+class LogisticsCoordinate(BaseModel):
+    latitude: float = Field(
+        ...,
+        ge=-90,
+        le=90,
+    )
+
+    longitude: float = Field(
+        ...,
+        ge=-180,
+        le=180,
+    )
+
+
+class LogisticsRouteRequest(BaseModel):
+    origin: LogisticsCoordinate
+    destination: LogisticsCoordinate
+
+    cargo_weight_kg: float = Field(
+        ...,
+        gt=0,
+        le=100000,
+    )
+
+    vehicle_type: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+    )
+
+
+@app.get("/api/logistics/vehicles")
+def logistics_vehicles():
+
+    return {
+        "vehicles": [
+            {
+                "type": vehicle_type,
+                **vehicle,
+            }
+            for vehicle_type, vehicle
+            in VEHICLES.items()
+        ]
+    }
+
+@app.get("/api/logistics/vehicles")
+def logistics_vehicles():
+    return {
+        "vehicles": [
+            {"type": vehicle_type, **vehicle}
+            for vehicle_type, vehicle in VEHICLES.items()
+        ]
+    }
+
+
+# 👇 ADD THIS HERE
+@app.get("/api/logistics/locations/search")
+def logistics_location_search(
+    q: str = Query(..., min_length=2, max_length=120)
+):
+    query = q.strip()
+
+    if not query:
+        raise HTTPException(
+            status_code=400,
+            detail="Location query cannot be empty."
+        )
+
+    params = urllib.parse.urlencode({
+        "q": query,
+        "format": "json",
+        "limit": 5,
+        "addressdetails": 1,
+    })
+
+    url = f"https://nominatim.openstreetmap.org/search?{params}"
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "SmartCommuteAI/1.0",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Location search service is temporarily unavailable."
+        ) from exc
+
+    results = []
+
+    for item in data:
+        try:
+            results.append({
+                "display_name": item.get("display_name", ""),
+                "latitude": float(item["lat"]),
+                "longitude": float(item["lon"]),
+                "type": item.get("type"),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    return {
+        "query": query,
+        "results": results,
+        "source": "OpenStreetMap Nominatim",
+    }
+
+
+@app.post("/api/logistics/routes")
+def logistics_routes(
+    request: LogisticsRouteRequest,
+):
+
+    try:
+
+        result = build_logistics_routes(
+            origin_lat=request.origin.latitude,
+            origin_lng=request.origin.longitude,
+            destination_lat=request.destination.latitude,
+            destination_lng=request.destination.longitude,
+            cargo_weight_kg=request.cargo_weight_kg,
+            vehicle_type=request.vehicle_type,
+        )
+
+        return {
+            "origin": request.origin.model_dump(),
+            "destination": request.destination.model_dump(),
+            **result,
+        }
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    except RuntimeError as exc:
+
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
+        )
 
 # ============================================================
 # RUN DIRECTLY

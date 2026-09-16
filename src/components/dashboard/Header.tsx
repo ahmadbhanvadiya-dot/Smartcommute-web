@@ -17,7 +17,7 @@ export default function Header({
   onClose,
 }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+   <header className="sticky top-0 z-40 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:ml-64 lg:px-8">
 
       {/* ==================================================== */}
       {/* LEFT */}

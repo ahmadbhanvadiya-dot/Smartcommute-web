@@ -7,6 +7,8 @@ import {
   Popup,
   TileLayer,
   Polyline,
+  CircleMarker,
+  useMap,
 } from "react-leaflet";
 import L from "leaflet";
 
@@ -116,6 +118,40 @@ const busIcon = L.divIcon({
 });
 
 // ============================================================
+// USER LOCATION MAP FOLLOWER
+// ============================================================
+
+function UserLocationFollower({
+  location,
+}: {
+  location: {
+    latitude: number;
+    longitude: number;
+  } | null;
+}) {
+  const map = useMap();
+  const hasCentered = useState(false);
+
+  useEffect(() => {
+    if (!location || hasCentered[0]) {
+      return;
+    }
+
+    map.flyTo(
+      [location.latitude, location.longitude],
+      Math.max(map.getZoom(), 14),
+      {
+        duration: 1,
+      }
+    );
+
+    hasCentered[1](true);
+  }, [location, map, hasCentered]);
+
+  return null;
+}
+
+// ============================================================
 // COMPONENT
 // ============================================================
 
@@ -186,10 +222,19 @@ export default function LiveTransportMap({
   // FETCH TRIP ROUTE
   // ==========================================================
 
-  const fetchTripRoute = async () => {
+  const fetchTripRoute = async (
+    tripId: string | null
+  ) => {
+    if (!tripId) {
+      setRoute(null);
+      return;
+    }
+
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/trips/41828307/route`,
+        `${API_BASE_URL}/api/trips/${encodeURIComponent(
+          tripId
+        )}/route`,
         {
           cache: "no-store",
         }
@@ -210,6 +255,7 @@ export default function LiveTransportMap({
         "Trip route API error:",
         err
       );
+      setRoute(null);
     }
   };
 
@@ -219,7 +265,6 @@ export default function LiveTransportMap({
 
   useEffect(() => {
     fetchLiveVehicles();
-    fetchTripRoute();
 
     const interval = setInterval(() => {
       fetchLiveVehicles();
@@ -227,6 +272,86 @@ export default function LiveTransportMap({
 
     return () => {
       clearInterval(interval);
+    };
+  }, []);
+
+  // ==========================================================
+  // SELECTED VEHICLE
+  // ==========================================================
+
+  const selectedVehicle =
+    vehicles.find(
+      (vehicle) =>
+        vehicle.vehicle_id === selectedBus
+    ) || vehicles[0] || null;
+
+  // ==========================================================
+  // LOAD THE ROUTE FOR THE SELECTED LIVE VEHICLE
+  // ==========================================================
+
+  useEffect(() => {
+    fetchTripRoute(
+      selectedVehicle?.trip_id || null
+    );
+  }, [selectedVehicle?.trip_id]);
+
+  // ==========================================================
+  // USER LIVE LOCATION
+  // ==========================================================
+
+  const [userLocation, setUserLocation] =
+    useState<{
+      latitude: number;
+      longitude: number;
+      accuracy: number;
+    } | null>(null);
+
+  const [locationError, setLocationError] =
+    useState<string | null>(null);
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocationError(
+        "Location services are not supported by this browser."
+      );
+      return;
+    }
+
+    const watchId =
+      navigator.geolocation.watchPosition(
+        (position) => {
+          setUserLocation({
+            latitude:
+              position.coords.latitude,
+            longitude:
+              position.coords.longitude,
+            accuracy:
+              position.coords.accuracy,
+          });
+
+          setLocationError(null);
+        },
+        (error) => {
+          console.error(
+            "User location error:",
+            error
+          );
+
+          setLocationError(
+            "Allow location permission to show your live position."
+          );
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 3000,
+          timeout: 10000,
+        }
+      );
+
+    return () => {
+      navigator.geolocation.clearWatch(
+        watchId
+      );
     };
   }, []);
 
@@ -253,22 +378,17 @@ export default function LiveTransportMap({
   // ==========================================================
 
   const mapCenter: [number, number] =
-    vehicles.length > 0
+    userLocation
       ? [
-          vehicles[0].latitude,
-          vehicles[0].longitude,
+          userLocation.latitude,
+          userLocation.longitude,
         ]
-      : DEFAULT_CENTER;
-
-  // ==========================================================
-  // SELECTED VEHICLE
-  // ==========================================================
-
-  const selectedVehicle =
-    vehicles.find(
-      (vehicle) =>
-        vehicle.vehicle_id === selectedBus
-    ) || null;
+      : selectedVehicle
+        ? [
+            selectedVehicle.latitude,
+            selectedVehicle.longitude,
+          ]
+        : DEFAULT_CENTER;
 
   // ==========================================================
   // FORMAT UPDATED TIME
@@ -321,6 +441,19 @@ export default function LiveTransportMap({
               : "s"}
           </p>
 
+          <p
+            className={`mt-1 text-[10px] font-medium ${
+              userLocation
+                ? "text-blue-600"
+                : "text-slate-400"
+            }`}
+          >
+            {userLocation
+              ? "● Your location is live"
+              : locationError ||
+                "Waiting for location permission..."}
+          </p>
+
         </div>
 
         {/* ================================================== */}
@@ -362,6 +495,65 @@ export default function LiveTransportMap({
           attribution="&copy; OpenStreetMap contributors"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+
+        <UserLocationFollower
+          location={userLocation}
+        />
+
+        {/* ================================================== */}
+        {/* YOUR LIVE LOCATION */}
+        {/* ================================================== */}
+
+        {userLocation && (
+          <>
+            <CircleMarker
+              center={[
+                userLocation.latitude,
+                userLocation.longitude,
+              ]}
+              radius={10}
+              pathOptions={{
+                color: "#ffffff",
+                weight: 3,
+                fillColor: "#2563eb",
+                fillOpacity: 1,
+              }}
+            >
+              <Popup>
+                <div className="min-w-[170px]">
+                  <p className="text-sm font-bold text-slate-900">
+                    You are here
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Live location
+                  </p>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Accuracy:{" "}
+                    {Math.round(
+                      userLocation.accuracy
+                    )}
+                    m
+                  </p>
+                </div>
+              </Popup>
+            </CircleMarker>
+
+            <CircleMarker
+              center={[
+                userLocation.latitude,
+                userLocation.longitude,
+              ]}
+              radius={24}
+              pathOptions={{
+                color: "#2563eb",
+                weight: 1,
+                opacity: 0.25,
+                fillColor: "#2563eb",
+                fillOpacity: 0.08,
+              }}
+            />
+          </>
+        )}
 
         {/* ================================================== */}
         {/* ACTUAL GTFS ROUTE */}
@@ -632,7 +824,7 @@ export default function LiveTransportMap({
         </p>
 
         <p className="text-xs font-medium text-slate-700">
-          GTFS Schedule Simulation
+          GTFS Schedule Simulation • Vehicle positions are simulated
         </p>
 
         {formattedUpdatedTime && (

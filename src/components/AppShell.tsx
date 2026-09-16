@@ -1,8 +1,9 @@
-
 "use client";
 
 import { usePathname } from "next/navigation";
+
 import Sidebar from "@/components/dashboard/Sidebar";
+import LogisticsSidebar from "@/components/logistics/LogisticsSidebar";
 
 export default function AppShell({
   children,
@@ -11,12 +12,25 @@ export default function AppShell({
 }) {
   const pathname = usePathname();
 
-  // The onboarding page is intentionally full-screen.
-  const isOnboarding = pathname === "/";
+  // Landing / mode-selection page
+  if (pathname === "/") {
+    return <>{children}</>;
+  }
 
+  // Logistics platform
+  if (pathname.startsWith("/logistics")) {
+    return (
+      <>
+        <LogisticsSidebar />
+        {children}
+      </>
+    );
+  }
+
+  // Commuter platform
   return (
     <>
-      {!isOnboarding && <Sidebar />}
+      <Sidebar />
       {children}
     </>
   );

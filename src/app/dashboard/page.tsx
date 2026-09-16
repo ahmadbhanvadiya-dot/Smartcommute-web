@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 
 import {
@@ -168,13 +168,29 @@ export default function DashboardPage() {
     useState(0);
 
   /* ======================================================= */
-  /* BEST ROUTE */
+  /* SMART ROUTE RECOMMENDATION */
   /* ======================================================= */
 
-  const bestRoute =
-    backendRoutes.length > 0
-      ? backendRoutes[0]
-      : null;
+  /*
+   * The FastAPI backend already ranks routes using its
+   * weighted optimization score, where lower is better.
+   *
+   * We keep that backend ranking as the source of truth
+   * instead of inventing a fake AI prediction in the UI.
+   */
+
+  const recommendedRoute =
+    useMemo(() => {
+      if (backendRoutes.length === 0) {
+        return null;
+      }
+
+      return [...backendRoutes].sort(
+        (a, b) => a.score - b.score
+      )[0];
+    }, [backendRoutes]);
+
+  const bestRoute = recommendedRoute;
 
   const selectedRoute =
     backendRoutes.find(
@@ -182,6 +198,121 @@ export default function DashboardPage() {
         item.trip_id ===
         selectedRouteId
     ) ?? bestRoute;
+
+  /*
+   * Explain the recommendation using actual route data.
+   */
+
+  const recommendationReasons =
+    useMemo(() => {
+      if (!recommendedRoute) {
+        return [];
+      }
+
+      const reasons: string[] = [];
+
+      const fastest =
+        backendRoutes.every(
+          (route) =>
+            route.total_minutes >=
+            recommendedRoute.total_minutes
+        );
+
+      const leastWalking =
+        backendRoutes.every(
+          (route) =>
+            route.walking_minutes >=
+            recommendedRoute.walking_minutes
+        );
+
+      const leastWaiting =
+        backendRoutes.every(
+          (route) =>
+            route.wait_minutes >=
+            recommendedRoute.wait_minutes
+        );
+
+      const transferCount =
+        recommendedRoute.transfers ?? 0;
+
+      if (fastest) {
+        reasons.push(
+          "Shortest total scheduled journey"
+        );
+      } else if (
+        recommendedRoute.total_minutes <=
+        Math.min(
+          ...backendRoutes.map(
+            (route) => route.total_minutes
+          )
+        ) + 3
+      ) {
+        reasons.push(
+          "Very low total travel time"
+        );
+      }
+
+      if (leastWalking) {
+        reasons.push(
+          "Lowest walking time among available routes"
+        );
+      } else if (
+        recommendedRoute.walking_minutes <= 10
+      ) {
+        reasons.push(
+          "Low walking requirement"
+        );
+      }
+
+      if (leastWaiting) {
+        reasons.push(
+          "Lowest initial waiting time"
+        );
+      } else if (
+        recommendedRoute.wait_minutes <= 5
+      ) {
+        reasons.push(
+          "Short initial wait"
+        );
+      }
+
+      if (transferCount === 0) {
+        reasons.push(
+          "No bus transfer required"
+        );
+      } else {
+        const transferWait =
+          recommendedRoute.transfer_wait_minutes;
+
+        if (
+          typeof transferWait === "number" &&
+          transferWait <= 5
+        ) {
+          reasons.push(
+            "Short scheduled transfer wait"
+          );
+        } else {
+          reasons.push(
+            `${transferCount} bus transfer${transferCount > 1 ? "s" : ""}`
+          );
+        }
+      }
+
+      /*
+       * Always provide at least one explanation.
+       */
+      if (reasons.length === 0) {
+        reasons.push(
+          "Lowest weighted optimization score"
+        );
+      }
+
+      return reasons.slice(0, 4);
+    }, [recommendedRoute, backendRoutes]);
+
+  const isRecommendedSelection =
+    selectedRoute?.trip_id ===
+    recommendedRoute?.trip_id;
 
   /* ======================================================= */
   /* SEARCH HANDLER */
@@ -486,6 +617,63 @@ export default function DashboardPage() {
 
               </div>
 
+              {recommendedRoute && (
+                <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white">
+                          <Activity size={16} />
+                        </span>
+
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                            SmartCommute Recommendation
+                          </p>
+
+                          <p className="text-sm font-black text-slate-900">
+                            {getRouteLabel(recommendedRoute)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <p className="mt-2 text-xs leading-5 text-blue-800/80">
+                        Lowest weighted route score among the returned upcoming trips.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 sm:min-w-[270px]">
+                      <div className="rounded-xl bg-white p-2.5 text-center">
+                        <p className="text-[9px] font-bold text-slate-400">
+                          TOTAL
+                        </p>
+                        <p className="mt-1 text-sm font-black text-slate-900">
+                          {recommendedRoute.total_minutes}m
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-2.5 text-center">
+                        <p className="text-[9px] font-bold text-slate-400">
+                          WALK
+                        </p>
+                        <p className="mt-1 text-sm font-black text-slate-900">
+                          {recommendedRoute.walking_minutes}m
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-white p-2.5 text-center">
+                        <p className="text-[9px] font-bold text-slate-400">
+                          SCORE
+                        </p>
+                        <p className="mt-1 text-sm font-black text-blue-700">
+                          {recommendedRoute.score.toFixed(1)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 
                 {backendRoutes
@@ -542,7 +730,8 @@ export default function DashboardPage() {
 
                             </div>
 
-                            {index === 0 && (
+                            {item.trip_id ===
+                              recommendedRoute?.trip_id && (
                               <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
                                 RECOMMENDED
                               </span>
@@ -852,7 +1041,7 @@ export default function DashboardPage() {
                   </h2>
 
                   <p className="text-sm text-slate-500">
-                    Based on upcoming TGSRTC schedule data.
+                    Ranked from the live route-search response using scheduled journey, wait, walking and transfer factors.
                   </p>
 
                 </div>
@@ -986,12 +1175,33 @@ export default function DashboardPage() {
 
                   <div className="mt-4 rounded-xl bg-blue-50 p-4">
 
-                    <p className="text-xs font-bold text-blue-900">
-                      Why this route?
-                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-bold text-blue-900">
+                        Why this route?
+                      </p>
 
-                    <p className="mt-1 text-xs leading-5 text-blue-800/80">
-                      SmartCommute ranked this upcoming bus using wait time, journey duration and walking time from the GTFS-connected route data.
+                      {isRecommendedSelection && (
+                        <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-blue-700">
+                          LOWEST ROUTE SCORE
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-2 grid gap-1.5">
+                      {recommendationReasons.map(
+                        (reason, reasonIndex) => (
+                          <p
+                            key={`${reason}-${reasonIndex}`}
+                            className="text-xs leading-5 text-blue-800/80"
+                          >
+                            ✓ {reason}
+                          </p>
+                        )
+                      )}
+                    </div>
+
+                    <p className="mt-2 text-[10px] leading-4 text-blue-700/60">
+                      Recommendation is based on the TGSRTC GTFS schedule and the backend weighted optimization score. It is not live GPS prediction.
                     </p>
 
                   </div>
@@ -1299,7 +1509,7 @@ export default function DashboardPage() {
 
                 <div className="flex flex-wrap gap-x-4 gap-y-2">
   <span>✓ GTFS schedules</span>
-  <span>✓ Route optimization</span>
+  <span>✓ Weighted route optimization</span>
   <span>✓ ETA estimation</span>
   <span>✓ Multi-route comparison</span>
 </div>

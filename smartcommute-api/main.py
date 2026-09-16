@@ -2,6 +2,9 @@ from pathlib import Path
 from math import radians, sin, cos, sqrt, atan2
 from functools import lru_cache
 from datetime import datetime
+import json
+import urllib.parse
+import urllib.request
 
 import pandas as pd
 
@@ -1220,6 +1223,118 @@ def upcoming_buses(
 
         "buses": buses,
     }
+
+# ============================================================
+# LOCATION SEARCH / GEOCODING
+# ============================================================
+
+@lru_cache(maxsize=256)
+def geocode_hyderabad_location(location: str):
+    """
+    Resolve a user-entered Hyderabad location to coordinates.
+
+    Results are cached in memory so repeated searches do not
+    repeatedly hit the public geocoder.
+    """
+
+    cleaned = " ".join(location.strip().split())
+
+    params = urllib.parse.urlencode({
+        "q": f"{cleaned}, Hyderabad, Telangana, India",
+        "format": "jsonv2",
+        "limit": "1",
+        "countrycodes": "in",
+        "addressdetails": "1",
+    })
+
+    url = (
+        "https://nominatim.openstreetmap.org/search?"
+        + params
+    )
+
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "SmartCommuteAI/1.0",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=8,
+        ) as response:
+            payload = json.loads(
+                response.read().decode("utf-8")
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Location service is temporarily unavailable. "
+                f"Could not resolve '{cleaned}'."
+            ),
+        ) from exc
+
+    if not isinstance(payload, list) or not payload:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Location '{cleaned}' could not be found "
+                "in Hyderabad."
+            ),
+        )
+
+    result = payload[0]
+
+    try:
+        latitude = float(result["lat"])
+        longitude = float(result["lon"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Location service returned invalid coordinates.",
+        ) from exc
+
+    return {
+        "name": cleaned,
+        "latitude": latitude,
+        "longitude": longitude,
+        "display_name": result.get(
+            "display_name",
+            cleaned,
+        ),
+        "source": "OpenStreetMap Nominatim",
+    }
+
+
+@app.get("/api/locations/search")
+def search_location(
+    q: str = Query(
+        ...,
+        min_length=2,
+        max_length=200,
+        description="Hyderabad location to geocode",
+    ),
+):
+    """
+    Resolve a user-entered Hyderabad place name to coordinates.
+
+    This endpoint keeps geocoding on the backend so the frontend
+    does not call the public geocoder directly.
+    """
+
+    cleaned = " ".join(q.strip().split())
+
+    if not cleaned:
+        raise HTTPException(
+            status_code=400,
+            detail="Location cannot be empty.",
+        )
+
+    return geocode_hyderabad_location(cleaned)
+
 
 # ============================================================
 # SMART ROUTE SEARCH

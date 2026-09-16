@@ -259,7 +259,7 @@ export async function searchBackendRoutes(
     to_lat: String(destination.lat),
     to_lng: String(destination.lng),
 
-    radius_km: "5",
+    radius_km: "10",
     limit: "10",
   });
 

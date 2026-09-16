@@ -1239,6 +1239,26 @@ def geocode_hyderabad_location(location: str):
 
     cleaned = " ".join(location.strip().split())
 
+    # Prefer a real TGSRTC stop when the user enters one.
+    # This makes transit stop names such as "Katedan" resolve to the
+    # exact GTFS coordinates instead of depending on a generic geocoder.
+    try:
+        stops = load_stops()
+        names = stops["stop_name"].astype(str).str.strip()
+        exact = stops[names.str.casefold() == cleaned.casefold()]
+        if not exact.empty:
+            row = exact.iloc[0]
+            return {
+                "name": cleaned,
+                "latitude": float(row["stop_lat"]),
+                "longitude": float(row["stop_lon"]),
+                "display_name": str(row["stop_name"]),
+                "source": "TGSRTC GTFS stop",
+            }
+    except Exception:
+        # Fall back to Nominatim for arbitrary places.
+        pass
+
     params = urllib.parse.urlencode({
         "q": f"{cleaned}, Hyderabad, Telangana, India",
         "format": "jsonv2",
@@ -1340,730 +1360,384 @@ def search_location(
 # SMART ROUTE SEARCH
 # ============================================================
 
+# ============================================================
+# MULTI-LEG TRANSIT ROUTING HELPERS
+# ============================================================
+
+@lru_cache(maxsize=1)
+def build_transit_indexes():
+    """Build compact GTFS indexes used by the transfer-aware router."""
+    stop_times = load_stop_times().copy()
+
+    stop_times["trip_id"] = stop_times["trip_id"].astype(str)
+    stop_times["stop_id"] = stop_times["stop_id"].astype(str)
+    stop_times["stop_sequence"] = pd.to_numeric(
+        stop_times["stop_sequence"], errors="coerce"
+    )
+    stop_times["arrival_seconds"] = stop_times["arrival_time"].apply(parse_gtfs_time)
+    if "departure_time" in stop_times.columns:
+        stop_times["departure_seconds"] = stop_times["departure_time"].apply(parse_gtfs_time)
+    else:
+        stop_times["departure_seconds"] = stop_times["arrival_seconds"]
+
+    stop_times = stop_times.dropna(
+        subset=["stop_sequence", "arrival_seconds", "departure_seconds"]
+    ).sort_values(["trip_id", "stop_sequence"])
+
+    trip_stops = {}
+    stop_trips = {}
+
+    for trip_id, group in stop_times.groupby("trip_id", sort=False):
+        records = []
+        for _, row in group.iterrows():
+            record = {
+                "stop_id": str(row["stop_id"]),
+                "sequence": int(row["stop_sequence"]),
+                "arrival": int(row["arrival_seconds"]),
+                "departure": int(row["departure_seconds"]),
+            }
+            records.append(record)
+            stop_trips.setdefault(record["stop_id"], []).append(str(trip_id))
+        trip_stops[str(trip_id)] = records
+
+    return trip_stops, stop_trips
+
+
+def _stop_lookup(stops):
+    return {
+        str(row["stop_id"]): {
+            "stop_name": str(row["stop_name"]),
+            "latitude": float(row["stop_lat"]),
+            "longitude": float(row["stop_lon"]),
+            "distance_km": float(row.get("distance_km", 0.0)),
+        }
+        for _, row in stops.iterrows()
+    }
+
+
+def _trip_segment(trip_records, start_stop_id, end_stop_ids, min_sequence=None):
+    """Return the first valid start/end pair on a trip."""
+    start = None
+    for record in trip_records:
+        if record["stop_id"] == str(start_stop_id):
+            if min_sequence is None or record["sequence"] >= min_sequence:
+                start = record
+                break
+
+    if start is None:
+        return None
+
+    for record in trip_records:
+        if record["sequence"] <= start["sequence"]:
+            continue
+        if record["stop_id"] in end_stop_ids:
+            return start, record
+
+    return None
+
+
+def _route_meta(trips, routes):
+    trips_copy = trips.copy()
+    routes_copy = routes.copy()
+    trips_copy["trip_id"] = trips_copy["trip_id"].astype(str)
+    trips_copy["route_id"] = trips_copy["route_id"].astype(str)
+    routes_copy["route_id"] = routes_copy["route_id"].astype(str)
+
+    meta = {}
+    for _, row in trips_copy.iterrows():
+        trip_id = str(row["trip_id"])
+        route_id = str(row["route_id"])
+        meta[trip_id] = {
+            "route_id": route_id,
+            "direction_id": row.get("direction_id"),
+            "trip_name": str(row.get("trip_short_name", ""))
+            if pd.notna(row.get("trip_short_name", "")) else "",
+        }
+
+    route_meta = {}
+    for _, row in routes_copy.iterrows():
+        route_id = str(row["route_id"])
+        number = row.get("route_short_name", route_id)
+        name = row.get("route_long_name", "")
+        route_meta[route_id] = {
+            "route_number": str(number) if pd.notna(number) else route_id,
+            "route_name": str(name) if pd.notna(name) and str(name).strip() else str(number),
+        }
+    return meta, route_meta
+
+
+# ============================================================
+# SMART ROUTE SEARCH — DIRECT + ONE TRANSFER
+# ============================================================
+
 @app.get("/api/routes/search")
 def search_routes(
-    from_lat: float = Query(
-        ...,
-        ge=-90,
-        le=90,
-        description="Origin latitude",
-    ),
-    from_lng: float = Query(
-        ...,
-        ge=-180,
-        le=180,
-        description="Origin longitude",
-    ),
-    to_lat: float = Query(
-        ...,
-        ge=-90,
-        le=90,
-        description="Destination latitude",
-    ),
-    to_lng: float = Query(
-        ...,
-        ge=-180,
-        le=180,
-        description="Destination longitude",
-    ),
-    radius_km: float = Query(
-        5,
-        gt=0,
-        le=20,
-        description="Maximum distance to search for stops",
-    ),
-    limit: int = Query(
-        10,
-        ge=1,
-        le=20,
-        description="Maximum number of route options",
-    ),
+    from_lat: float = Query(..., ge=-90, le=90),
+    from_lng: float = Query(..., ge=-180, le=180),
+    to_lat: float = Query(..., ge=-90, le=90),
+    to_lng: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(10, gt=0, le=20),
+    limit: int = Query(10, ge=1, le=20),
 ):
-    """
-    Find practical bus routes between an origin and destination.
-
-    The algorithm:
-    1. Finds nearby origin stops.
-    2. Finds nearby destination stops.
-    3. Finds GTFS trips that visit both stops.
-    4. Ensures the origin stop occurs before the destination stop.
-    5. Calculates walking distance, bus journey time and total time.
-    6. Returns the best available route options.
-    """
-
-    # --------------------------------------------------------
-    # Load GTFS data
-    # --------------------------------------------------------
-
+    """Find direct and one-transfer TGSRTC journeys from arbitrary coordinates."""
     stops = load_stops().copy()
-    stop_times = load_stop_times().copy()
     trips = load_trips().copy()
     routes = load_routes().copy()
 
-    # --------------------------------------------------------
-    # Normalize IDs
-    # --------------------------------------------------------
-
     stops["stop_id"] = stops["stop_id"].astype(str)
-    stop_times["stop_id"] = stop_times["stop_id"].astype(str)
-    stop_times["trip_id"] = stop_times["trip_id"].astype(str)
-    trips["trip_id"] = trips["trip_id"].astype(str)
-    trips["route_id"] = trips["route_id"].astype(str)
-    routes["route_id"] = routes["route_id"].astype(str)
 
-    # --------------------------------------------------------
-    # Find nearby origin stops
-    # --------------------------------------------------------
-
+    # Find practical walking endpoints.
     origin_stops = stops.copy()
-
     origin_stops["distance_km"] = origin_stops.apply(
-        lambda row: haversine_distance(
-            from_lat,
-            from_lng,
-            float(row["stop_lat"]),
-            float(row["stop_lon"]),
-        ),
+        lambda r: haversine_distance(from_lat, from_lng, float(r["stop_lat"]), float(r["stop_lon"])),
         axis=1,
     )
-
-    origin_stops = (
-        origin_stops[
-            origin_stops["distance_km"] <= radius_km
-        ]
-        .sort_values("distance_km")
-        .head(8)
-    )
-
-    # --------------------------------------------------------
-    # Find nearby destination stops
-    # --------------------------------------------------------
+    origin_stops = origin_stops[origin_stops["distance_km"] <= max(radius_km, 10)].sort_values("distance_km").head(20)
 
     destination_stops = stops.copy()
-
     destination_stops["distance_km"] = destination_stops.apply(
-        lambda row: haversine_distance(
-            to_lat,
-            to_lng,
-            float(row["stop_lat"]),
-            float(row["stop_lon"]),
-        ),
+        lambda r: haversine_distance(to_lat, to_lng, float(r["stop_lat"]), float(r["stop_lon"])),
         axis=1,
     )
+    destination_stops = destination_stops[destination_stops["distance_km"] <= max(radius_km, 10)].sort_values("distance_km").head(20)
 
-    destination_stops = (
-        destination_stops[
-            destination_stops["distance_km"] <= radius_km
-        ]
-        .sort_values("distance_km")
-        .head(8)
-    )
-
-    # --------------------------------------------------------
-    # No origin stops
-    # --------------------------------------------------------
+    base_response = {
+        "origin": {"latitude": from_lat, "longitude": from_lng},
+        "destination": {"latitude": to_lat, "longitude": to_lng},
+    }
 
     if origin_stops.empty:
-        return {
-            "origin": {
-                "latitude": from_lat,
-                "longitude": from_lng,
-            },
-            "destination": {
-                "latitude": to_lat,
-                "longitude": to_lng,
-            },
-            "count": 0,
-            "routes": [],
-            "message": "No nearby origin bus stops found.",
-        }
-
-    # --------------------------------------------------------
-    # No destination stops
-    # --------------------------------------------------------
-
+        return {**base_response, "count": 0, "routes": [], "message": "No nearby origin bus stops found."}
     if destination_stops.empty:
-        return {
-            "origin": {
-                "latitude": from_lat,
-                "longitude": from_lng,
-            },
-            "destination": {
-                "latitude": to_lat,
-                "longitude": to_lng,
-            },
-            "count": 0,
-            "routes": [],
-            "message": "No nearby destination bus stops found.",
-        }
+        return {**base_response, "count": 0, "routes": [], "message": "No nearby destination bus stops found."}
 
-    # --------------------------------------------------------
-    # Build lookup dictionaries
-    # --------------------------------------------------------
+    origin_lookup = _stop_lookup(origin_stops)
+    destination_lookup = _stop_lookup(destination_stops)
+    origin_ids = set(origin_lookup)
+    destination_ids = set(destination_lookup)
 
-    origin_lookup = {
-        str(row["stop_id"]): {
-            "stop_name": str(row["stop_name"]),
-            "latitude": float(row["stop_lat"]),
-            "longitude": float(row["stop_lon"]),
-            "distance_km": float(row["distance_km"]),
-        }
-        for _, row in origin_stops.iterrows()
-    }
-
-    destination_lookup = {
-        str(row["stop_id"]): {
-            "stop_name": str(row["stop_name"]),
-            "latitude": float(row["stop_lat"]),
-            "longitude": float(row["stop_lon"]),
-            "distance_km": float(row["distance_km"]),
-        }
-        for _, row in destination_stops.iterrows()
-    }
-
-    origin_ids = set(origin_lookup.keys())
-    destination_ids = set(destination_lookup.keys())
-
-    # --------------------------------------------------------
-    # Current time
-    # --------------------------------------------------------
+    trip_stops, stop_trips = build_transit_indexes()
+    trip_meta, route_meta = _route_meta(trips, routes)
 
     now = datetime.now()
-
-    current_seconds = (
-        now.hour * 3600
-        + now.minute * 60
-        + now.second
-    )
-
-    # --------------------------------------------------------
-    # Keep only relevant stop-time records
-    # --------------------------------------------------------
-
-    relevant_stop_times = stop_times[
-        stop_times["stop_id"].isin(
-            origin_ids | destination_ids
-        )
-    ].copy()
-
-    if relevant_stop_times.empty:
-        return {
-            "origin": {
-                "latitude": from_lat,
-                "longitude": from_lng,
-            },
-            "destination": {
-                "latitude": to_lat,
-                "longitude": to_lng,
-            },
-            "count": 0,
-            "routes": [],
-            "message": "No scheduled buses found near the selected locations.",
-        }
-
-    # --------------------------------------------------------
-    # Convert stop sequence to numeric
-    # --------------------------------------------------------
-
-    relevant_stop_times["stop_sequence"] = pd.to_numeric(
-        relevant_stop_times["stop_sequence"],
-        errors="coerce",
-    )
-
-    # --------------------------------------------------------
-    # Parse arrival and departure times
-    # --------------------------------------------------------
-
-    relevant_stop_times["arrival_seconds"] = (
-        relevant_stop_times["arrival_time"]
-        .apply(parse_gtfs_time)
-    )
-
-    if "departure_time" in relevant_stop_times.columns:
-        relevant_stop_times["departure_seconds"] = (
-            relevant_stop_times["departure_time"]
-            .apply(parse_gtfs_time)
-        )
-    else:
-        relevant_stop_times["departure_seconds"] = (
-            relevant_stop_times["arrival_seconds"]
-        )
-
-    # --------------------------------------------------------
-    # Find trips serving origin + destination
-    # --------------------------------------------------------
-
-    candidate_trips = []
-
-    grouped = relevant_stop_times.groupby("trip_id")
-
-    for trip_id, group in grouped:
-
-        origin_rows = group[
-            group["stop_id"].isin(origin_ids)
-        ]
-
-        destination_rows = group[
-            group["stop_id"].isin(destination_ids)
-        ]
-
-        if origin_rows.empty or destination_rows.empty:
-            continue
-
-        # ----------------------------------------------------
-        # Check every possible origin/destination stop pair
-        # ----------------------------------------------------
-
-        found_pair = None
-
-        for _, origin_row in origin_rows.iterrows():
-
-            for _, destination_row in destination_rows.iterrows():
-
-                origin_sequence = origin_row["stop_sequence"]
-                destination_sequence = destination_row[
-                    "stop_sequence"
-                ]
-
-                if pd.isna(origin_sequence) or pd.isna(
-                    destination_sequence
-                ):
-                    continue
-
-                # Bus must travel from origin to destination
-                if destination_sequence <= origin_sequence:
-                    continue
-
-                origin_departure = origin_row[
-                    "departure_seconds"
-                ]
-
-                destination_arrival = destination_row[
-                    "arrival_seconds"
-                ]
-
-                if origin_departure is None:
-                    continue
-
-                if destination_arrival is None:
-                    continue
-
-                if destination_arrival <= origin_departure:
-                    continue
-
-                # We found a valid journey
-                found_pair = (
-                    origin_row,
-                    destination_row,
-                )
-
-                break
-
-            if found_pair:
-                break
-
-        if not found_pair:
-            continue
-
-        origin_row, destination_row = found_pair
-
-        # ----------------------------------------------------
-        # Only consider buses that have not already departed
-        # ----------------------------------------------------
-
-        origin_departure = int(
-            origin_row["departure_seconds"]
-        )
-
-        destination_arrival = int(
-            destination_row["arrival_seconds"]
-        )
-
-        # Handle GTFS schedules crossing midnight.
-        # For normal same-day trips, compare directly.
-        if origin_departure < current_seconds:
-            continue
-
-        wait_minutes = round(
-            (origin_departure - current_seconds) / 60
-        )
-
-        journey_minutes = round(
-            (
-                destination_arrival
-                - origin_departure
-            ) / 60
-        )
-
-        total_minutes = (
-            wait_minutes
-            + journey_minutes
-            + round(
-                origin_lookup[
-                    str(origin_row["stop_id"])
-                ]["distance_km"]
-                * 12
-            )
-            + round(
-                destination_lookup[
-                    str(destination_row["stop_id"])
-                ]["distance_km"]
-                * 12
-            )
-        )
-
-        candidate_trips.append(
-            {
-                "trip_id": str(trip_id),
-                "origin_stop_id": str(
-                    origin_row["stop_id"]
-                ),
-                "destination_stop_id": str(
-                    destination_row["stop_id"]
-                ),
-                "origin_sequence": int(
-                    origin_row["stop_sequence"]
-                ),
-                "destination_sequence": int(
-                    destination_row["stop_sequence"]
-                ),
-                "departure_time": str(
-                    origin_row["departure_time"]
-                ),
-                "arrival_time": str(
-                    destination_row["arrival_time"]
-                ),
-                "wait_minutes": wait_minutes,
-                "journey_minutes": journey_minutes,
-                "total_minutes": total_minutes,
-            }
-        )
-
-    # --------------------------------------------------------
-    # No matching trips
-    # --------------------------------------------------------
-
-    if not candidate_trips:
-        return {
-            "origin": {
-                "latitude": from_lat,
-                "longitude": from_lng,
-            },
-            "destination": {
-                "latitude": to_lat,
-                "longitude": to_lng,
-            },
-            "nearby_origin_stops": [
-                {
-                    "stop_id": str(stop_id),
-                    "stop_name": data["stop_name"],
-                    "distance_km": round(
-                        data["distance_km"],
-                        3,
-                    ),
-                }
-                for stop_id, data
-                in origin_lookup.items()
-            ],
-            "nearby_destination_stops": [
-                {
-                    "stop_id": str(stop_id),
-                    "stop_name": data["stop_name"],
-                    "distance_km": round(
-                        data["distance_km"],
-                        3,
-                    ),
-                }
-                for stop_id, data
-                in destination_lookup.items()
-            ],
-            "count": 0,
-            "routes": [],
-            "message": "No upcoming direct bus routes found.",
-        }
-
-    # --------------------------------------------------------
-    # Join candidate trips with route information
-    # --------------------------------------------------------
-
-    candidates_df = pd.DataFrame(
-        candidate_trips
-    )
-
-    candidates_df = candidates_df.merge(
-        trips[
-            [
-                "trip_id",
-                "route_id",
-                "direction_id",
-                "trip_short_name",
-            ]
-        ],
-        on="trip_id",
-        how="left",
-    )
-
-    route_columns = [
-        "route_id",
-    ]
-
-    if "route_short_name" in routes.columns:
-        route_columns.append(
-            "route_short_name"
-        )
-
-    if "route_long_name" in routes.columns:
-        route_columns.append(
-            "route_long_name"
-        )
-
-    route_info = routes[
-        route_columns
-    ].drop_duplicates(
-        subset=["route_id"]
-    )
-
-    candidates_df = candidates_df.merge(
-        route_info,
-        on="route_id",
-        how="left",
-    )
-
-    # --------------------------------------------------------
-    # Remove duplicate route/trip combinations
-    # --------------------------------------------------------
-
-    candidates_df = candidates_df.drop_duplicates(
-        subset=[
-            "route_id",
-            "origin_stop_id",
-            "destination_stop_id",
-        ],
-        keep="first",
-    )
-
-    # --------------------------------------------------------
-    # Build final response
-    # --------------------------------------------------------
+    current_seconds = now.hour * 3600 + now.minute * 60 + now.second
+    transfer_buffer = 3 * 60
+    max_wait = 180 * 60
 
     results = []
+    seen = set()
 
-    for _, row in candidates_df.head(limit).iterrows():
+    # --------------------------------------------------------
+    # DIRECT BUS ROUTES
+    # --------------------------------------------------------
+    for origin_stop_id in origin_ids:
+        for trip_id in stop_trips.get(origin_stop_id, []):
+            records = trip_stops.get(trip_id, [])
+            segment = _trip_segment(records, origin_stop_id, destination_ids)
+            if not segment:
+                continue
+            first, last = segment
+            if first["departure"] < current_seconds or first["departure"] > current_seconds + max_wait:
+                continue
 
-        route_number = row.get(
-            "route_short_name",
-            row["route_id"],
-        )
+            meta = trip_meta.get(trip_id)
+            if not meta:
+                continue
+            route = route_meta.get(meta["route_id"], {"route_number": meta["route_id"], "route_name": meta["route_id"]})
 
-        if pd.isna(route_number):
-            route_number = row["route_id"]
+            wait = round((first["departure"] - current_seconds) / 60)
+            journey = round((last["arrival"] - first["departure"]) / 60)
+            walking = round((origin_lookup[origin_stop_id]["distance_km"] + destination_lookup[last["stop_id"]]["distance_km"]) * 12)
+            score = round(wait * 0.35 + journey * 0.45 + walking * 0.20, 2)
 
-        route_name = row.get(
-            "route_long_name",
-            "",
-        )
+            key = ("direct", meta["route_id"], origin_stop_id, last["stop_id"])
+            if key in seen:
+                continue
+            seen.add(key)
 
-        if pd.isna(route_name) or not route_name:
-            route_name = str(route_number)
-
-        origin_stop_id = str(
-            row["origin_stop_id"]
-        )
-
-        destination_stop_id = str(
-            row["destination_stop_id"]
-        )
-
-        origin_data = origin_lookup[
-            origin_stop_id
-        ]
-
-        destination_data = destination_lookup[
-            destination_stop_id
-        ]
-
-        # ----------------------------------------------------
-        # SMART ROUTE OPTIMIZATION SCORE
-        # ----------------------------------------------------
-        # Lower score = better route.
-        # Weighting: 35% wait, 45% journey, 20% walking.
-        # Walking estimate: 12 minutes per kilometer.
-
-        wait_minutes = float(row["wait_minutes"])
-        journey_minutes = float(row["journey_minutes"])
-
-        origin_walk_km = float(origin_data["distance_km"])
-        destination_walk_km = float(destination_data["distance_km"])
-
-        walking_minutes = (
-            origin_walk_km + destination_walk_km
-        ) * 12
-        walking_minutes = round(walking_minutes, 2)
-
-        score = (
-            wait_minutes * 0.35
-            + journey_minutes * 0.45
-            + walking_minutes * 0.20
-        )
-        score = round(score, 2)
-
-        results.append(
-            {
-                "trip_id": str(
-                    row["trip_id"]
-                ),
-
-                "route_id": str(
-                    row["route_id"]
-                ),
-
-                "route_number": str(
-                    route_number
-                ),
-
-                "route_name": str(
-                    route_name
-                ),
-
-                "trip_name": (
-                    str(
-                        row.get(
-                            "trip_short_name",
-                            "",
-                        )
-                    )
-                    if pd.notna(
-                        row.get(
-                            "trip_short_name",
-                            "",
-                        )
-                    )
-                    else ""
-                ),
-
+            results.append({
+                "type": "direct",
+                "trip_id": trip_id,
+                "route_id": meta["route_id"],
+                "route_number": route["route_number"],
+                "route_name": route["route_name"],
+                "trip_name": meta["trip_name"],
                 "origin": {
                     "stop_id": origin_stop_id,
-                    "stop_name": origin_data[
-                        "stop_name"
-                    ],
-                    "distance_km": round(
-                        origin_data[
-                            "distance_km"
-                        ],
-                        3,
-                    ),
-                    "latitude": origin_data[
-                        "latitude"
-                    ],
-                    "longitude": origin_data[
-                        "longitude"
-                    ],
+                    **origin_lookup[origin_stop_id],
+                    "distance_km": round(origin_lookup[origin_stop_id]["distance_km"], 3),
                 },
-
                 "destination": {
-                    "stop_id": destination_stop_id,
-                    "stop_name": destination_data[
-                        "stop_name"
-                    ],
-                    "distance_km": round(
-                        destination_data[
-                            "distance_km"
-                        ],
-                        3,
-                    ),
-                    "latitude": destination_data[
-                        "latitude"
-                    ],
-                    "longitude": destination_data[
-                        "longitude"
-                    ],
+                    "stop_id": last["stop_id"],
+                    **destination_lookup[last["stop_id"]],
+                    "distance_km": round(destination_lookup[last["stop_id"]]["distance_km"], 3),
                 },
-
-                "departure_time": str(
-                    row["departure_time"]
-                ),
-
-                "arrival_time": str(
-                    row["arrival_time"]
-                ),
-
-                "wait_minutes": int(
-                    row["wait_minutes"]
-                ),
-
-                "journey_minutes": int(
-                    row["journey_minutes"]
-                ),
-
-                "walking_minutes": round(
-                    walking_minutes
-                ),
-
-                "total_minutes": int(
-                    row["total_minutes"]
-                ),
-
-                "score": round(
-                    float(score),
-                    2,
-                ),
-
-                "recommendation_factors": {
-                    "wait_minutes": int(wait_minutes),
-                    "journey_minutes": int(journey_minutes),
-                    "walking_minutes": round(walking_minutes),
-                    "origin_walk_km": round(origin_walk_km, 3),
-                    "destination_walk_km": round(destination_walk_km, 3),
-                },
-
+                "departure_time": format_gtfs_time(first["departure"]),
+                "arrival_time": format_gtfs_time(last["arrival"]),
+                "wait_minutes": wait,
+                "journey_minutes": journey,
+                "walking_minutes": walking,
+                "total_minutes": wait + journey + walking,
+                "score": score,
+                "transfers": 0,
                 "status": "Scheduled",
-            }
-        )
+            })
 
     # --------------------------------------------------------
-    # SMART RANKING
+    # ONE-TRANSFER ROUTES
     # --------------------------------------------------------
-    # Lower score = better route.
+    # Only inspect first-leg trips that can leave soon. This keeps
+    # the API responsive even with the full 800k+ stop-time dataset.
+    first_candidates = []
+    for origin_stop_id in origin_ids:
+        for trip_id in stop_trips.get(origin_stop_id, []):
+            records = trip_stops.get(trip_id, [])
+            first = next((r for r in records if r["stop_id"] == origin_stop_id), None)
+            if first is None:
+                continue
+            if current_seconds <= first["departure"] <= current_seconds + max_wait:
+                first_candidates.append((trip_id, origin_stop_id, first))
 
-    results.sort(
-        key=lambda route: (
-            route["score"],
-            route["total_minutes"],
-            route["wait_minutes"],
-        )
-    )
+    first_candidates.sort(key=lambda x: x[2]["departure"])
+    first_candidates = first_candidates[:300]
 
+    # Trips that can reach a destination stop are a much smaller search space.
+    second_trip_ids = set()
+    for destination_stop_id in destination_ids:
+        second_trip_ids.update(stop_trips.get(destination_stop_id, []))
+
+    for first_trip_id, first_origin_id, first_departure in first_candidates:
+        first_records = trip_stops.get(first_trip_id, [])
+        first_after = [r for r in first_records if r["sequence"] > first_departure["sequence"]]
+        # Ignore very long transfer chains; one-transfer journeys should be practical.
+        first_after = first_after[:80]
+
+        for transfer in first_after:
+            transfer_id = transfer["stop_id"]
+            if transfer_id in origin_ids:
+                continue
+
+            transfer_time = transfer["arrival"]
+
+            # Check only second-leg trips that eventually reach a destination stop.
+            for second_trip_id in stop_trips.get(transfer_id, []):
+                if second_trip_id == first_trip_id:
+                    continue
+                if second_trip_id not in second_trip_ids:
+                    continue
+
+                second_records = trip_stops.get(second_trip_id, [])
+                second_start = next((r for r in second_records if r["stop_id"] == transfer_id), None)
+                if second_start is None or second_start["departure"] < transfer_time + transfer_buffer:
+                    continue
+                if second_start["departure"] > current_seconds + max_wait:
+                    continue
+
+                second_end = next((r for r in second_records if r["sequence"] > second_start["sequence"] and r["stop_id"] in destination_ids), None)
+                if second_end is None:
+                    continue
+
+                meta1 = trip_meta.get(first_trip_id)
+                meta2 = trip_meta.get(second_trip_id)
+                if not meta1 or not meta2:
+                    continue
+                route1 = route_meta.get(meta1["route_id"], {"route_number": meta1["route_id"], "route_name": meta1["route_id"]})
+                route2 = route_meta.get(meta2["route_id"], {"route_number": meta2["route_id"], "route_name": meta2["route_id"]})
+
+                wait = round((first_departure["departure"] - current_seconds) / 60)
+                first_journey = round((transfer_time - first_departure["departure"]) / 60)
+                transfer_wait = round((second_start["departure"] - transfer_time) / 60)
+                second_journey = round((second_end["arrival"] - second_start["departure"]) / 60)
+                walking = round((origin_lookup[first_origin_id]["distance_km"] + destination_lookup[second_end["stop_id"]]["distance_km"]) * 12)
+                total = wait + first_journey + transfer_wait + second_journey + walking
+                score = round(
+                    wait * 0.25
+                    + (first_journey + second_journey) * 0.40
+                    + walking * 0.15
+                    + transfer_wait * 0.20,
+                    2,
+                )
+
+                key = ("transfer", first_trip_id, second_trip_id, first_origin_id, second_end["stop_id"])
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                results.append({
+                    "type": "transfer",
+                    "trip_id": first_trip_id,
+                    "route_id": meta1["route_id"],
+                    "route_number": f"{route1['route_number']} → {route2['route_number']}",
+                    "route_name": f"{route1['route_name']} → {route2['route_name']}",
+                    "trip_name": meta1["trip_name"],
+                    "origin": {
+                        "stop_id": first_origin_id,
+                        **origin_lookup[first_origin_id],
+                        "distance_km": round(origin_lookup[first_origin_id]["distance_km"], 3),
+                    },
+                    "destination": {
+                        "stop_id": second_end["stop_id"],
+                        **destination_lookup[second_end["stop_id"]],
+                        "distance_km": round(destination_lookup[second_end["stop_id"]]["distance_km"], 3),
+                    },
+                    "departure_time": format_gtfs_time(first_departure["departure"]),
+                    "arrival_time": format_gtfs_time(second_end["arrival"]),
+                    "wait_minutes": wait,
+                    "journey_minutes": first_journey + second_journey,
+                    "transfer_wait_minutes": transfer_wait,
+                    "walking_minutes": walking,
+                    "total_minutes": total,
+                    "score": score,
+                    "transfers": 1,
+                    "transfer_stop": {
+                        "stop_id": transfer_id,
+                        "stop_name": str(stops.loc[stops["stop_id"] == transfer_id, "stop_name"].iloc[0]) if (stops["stop_id"] == transfer_id).any() else transfer_id,
+                        "latitude": float(stops.loc[stops["stop_id"] == transfer_id, "stop_lat"].iloc[0]) if (stops["stop_id"] == transfer_id).any() else None,
+                        "longitude": float(stops.loc[stops["stop_id"] == transfer_id, "stop_lon"].iloc[0]) if (stops["stop_id"] == transfer_id).any() else None,
+                    },
+                    "legs": [
+                        {
+                            "trip_id": first_trip_id,
+                            "route_id": meta1["route_id"],
+                            "route_number": route1["route_number"],
+                            "from_stop": first_origin_id,
+                            "to_stop": transfer_id,
+                            "departure_time": format_gtfs_time(first_departure["departure"]),
+                            "arrival_time": format_gtfs_time(transfer_time),
+                        },
+                        {
+                            "trip_id": second_trip_id,
+                            "route_id": meta2["route_id"],
+                            "route_number": route2["route_number"],
+                            "from_stop": transfer_id,
+                            "to_stop": second_end["stop_id"],
+                            "departure_time": format_gtfs_time(second_start["departure"]),
+                            "arrival_time": format_gtfs_time(second_end["arrival"]),
+                        },
+                    ],
+                    "status": "Scheduled",
+                })
+
+                # One useful second-leg option per transfer/first trip is enough.
+                break
+
+    results.sort(key=lambda r: (r["score"], r["total_minutes"], r.get("transfers", 0)))
     results = results[:limit]
 
     return {
-        "origin": {
-            "latitude": from_lat,
-            "longitude": from_lng,
-        },
-
-        "destination": {
-            "latitude": to_lat,
-            "longitude": to_lng,
-        },
-
-        "current_time": now.strftime(
-            "%H:%M:%S"
-        ),
-
+        **base_response,
+        "current_time": now.strftime("%H:%M:%S"),
         "search_radius_km": radius_km,
-
         "count": len(results),
-
+        "routing": {
+            "engine": "TGSRTC GTFS transfer-aware router",
+            "max_transfers": 1,
+            "walking_speed_minutes_per_km": 12,
+        },
         "ranking": {
             "method": "weighted_route_optimization",
             "lower_score_is_better": True,
-            "weights": {
-                "wait_time": 0.35,
-                "journey_time": 0.45,
-                "walking_time": 0.20,
-            },
         },
-
         "routes": results,
     }
 

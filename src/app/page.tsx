@@ -1,7 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowRight, BusFront, Truck, Sparkles, MapPin } from "lucide-react";
+import {
+  ArrowRight,
+  BusFront,
+  Truck,
+  Sparkles,
+  MapPin,
+  Target,
+} from "lucide-react";
 
 export default function Home() {
   const router = useRouter();
@@ -29,7 +36,10 @@ export default function Home() {
               <h1 className="text-lg font-bold tracking-tight">
                 SmartCommute
               </h1>
-              <p className="text-xs text-slate-500">AI Mobility Platform</p>
+
+              <p className="text-xs text-slate-500">
+                AI Mobility Platform
+              </p>
             </div>
           </button>
 
@@ -40,7 +50,7 @@ export default function Home() {
         </header>
 
         {/* Hero */}
-        <section className="flex flex-1 flex-col items-center justify-center py-16 text-center">
+        <section className="flex flex-1 flex-col items-center justify-center py-12 text-center sm:py-16">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm">
             <Sparkles className="h-4 w-4" />
             One platform. Two mobility experiences.
@@ -53,12 +63,34 @@ export default function Home() {
           </h2>
 
           <p className="mt-6 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg">
-            Choose how you want to use SmartCommute. Plan your daily commute
-            or explore intelligent logistics and goods transportation.
+            Choose how you want to use SmartCommute. Plan your daily
+            commute or explore intelligent logistics and goods
+            transportation.
           </p>
 
+          {/* Mission Statement */}
+          <div className="mt-8 w-full max-w-2xl rounded-2xl border border-emerald-100 bg-emerald-50/70 px-6 py-5 shadow-sm">
+            <div className="flex flex-col items-center gap-2 sm:flex-row sm:items-start sm:text-left">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                <Target className="h-5 w-5" />
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">
+                  Our Mission
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-slate-600 sm:text-base">
+                  Making cities move smarter by reducing congestion,
+                  delays, and pressure on transport and logistics
+                  networks.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Mode Cards */}
-          <div className="mt-12 grid w-full max-w-5xl gap-6 md:grid-cols-2">
+          <div className="mt-10 grid w-full max-w-5xl gap-6 md:grid-cols-2">
             {/* Commuter */}
             <button
               onClick={() => router.push("/dashboard")}
@@ -82,13 +114,14 @@ export default function Home() {
                 </h3>
 
                 <p className="mt-3 min-h-[72px] text-sm leading-6 text-slate-500 sm:text-base">
-                  Find smarter public transport routes, compare journeys,
-                  check scheduled buses and get intelligent commute
-                  recommendations.
+                  Find smarter public transport routes, compare
+                  journeys, check scheduled buses and get intelligent
+                  commute recommendations.
                 </p>
 
                 <div className="mt-8 flex items-center gap-2 font-semibold text-blue-600">
                   Continue as Commuter
+
                   <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
                 </div>
               </div>
@@ -108,7 +141,7 @@ export default function Home() {
                   </div>
 
                   <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                    Coming next
+                    Logistics
                   </div>
                 </div>
 
@@ -123,6 +156,7 @@ export default function Home() {
 
                 <div className="mt-8 flex items-center gap-2 font-semibold text-emerald-600">
                   Enter Logistics
+
                   <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
                 </div>
               </div>

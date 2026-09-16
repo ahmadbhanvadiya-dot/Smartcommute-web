@@ -21,6 +21,15 @@ import {
   type TransportMode,
 } from "@/lib/route-engine";
 
+import {
+  searchBackendRoutes,
+  type BackendRoute,
+} from "@/lib/backend-route";
+
+/* ========================================================= */
+/* MAP */
+/* ========================================================= */
+
 const RouteMap = dynamic(
   () => import("@/components/map/RouteMap"),
   {
@@ -44,10 +53,14 @@ const RouteMap = dynamic(
   }
 );
 
+/* ========================================================= */
+/* DASHBOARD */
+/* ========================================================= */
+
 export default function DashboardPage() {
-  /* ===================================================== */
+  /* ======================================================= */
   /* ROUTE STATE */
-  /* ===================================================== */
+  /* ======================================================= */
 
   const [route, setRoute] = useState({
     from: "Mehdipatnam",
@@ -60,34 +73,49 @@ export default function DashboardPage() {
   const [searchVersion, setSearchVersion] =
     useState(0);
 
-  /* ===================================================== */
-  /* GENERATE ROUTES */
-  /* ===================================================== */
+  /* ======================================================= */
+  /* BACKEND ROUTE STATE */
+  /* ======================================================= */
 
-  const routes = generateRoutes(
+  const [backendRoutes, setBackendRoutes] =
+    useState<BackendRoute[]>([]);
+
+  const [routeLoading, setRouteLoading] =
+    useState(false);
+
+  const [routeError, setRouteError] =
+    useState<string | null>(null);
+
+  /* ======================================================= */
+  /* LOCAL ROUTES */
+  /* ======================================================= */
+
+  /*
+   * Keep the existing local route engine as a
+   * fallback for the dashboard UI.
+   */
+  const localRoutes = generateRoutes(
     route.from,
     route.to
   );
 
   /*
-   * If user selected a transport option,
-   * show that option.
+   * Once the backend returns real TGSRTC routes,
+   * use the backend data for the main route metrics.
    *
-   * Otherwise show AI's highest-scoring option.
+   * Otherwise fall back to the existing route engine.
    */
 
-  const recommendedRoute =
-    selectedMode
-      ? routes.find(
-          (item) => item.mode === selectedMode
-        ) ?? routes[0]
-      : routes[0];
+  const backendBestRoute =
+    backendRoutes.length > 0
+      ? backendRoutes[0]
+      : null;
 
-  /* ===================================================== */
+  /* ======================================================= */
   /* SEARCH */
-  /* ===================================================== */
+  /* ======================================================= */
 
-  const handleRouteSearch = (
+  const handleRouteSearch = async (
     from: string,
     to: string
   ) => {
@@ -98,26 +126,76 @@ export default function DashboardPage() {
       return;
     }
 
+    /* Update displayed journey */
+
     setRoute({
       from: cleanFrom,
       to: cleanTo,
     });
 
-    /*
-     * Reset selected transport when
-     * a completely new journey is searched.
-     */
+    /* Reset transport selection */
 
     setSelectedMode(null);
+
+    /* Clear previous search state */
+
+    setRouteError(null);
+    setBackendRoutes([]);
+
+    setRouteLoading(true);
+
+    /*
+     * Force map refresh.
+     */
 
     setSearchVersion(
       (previous) => previous + 1
     );
+
+    try {
+      /*
+       * Search the deployed FastAPI backend.
+       */
+
+      const response =
+        await searchBackendRoutes(
+          cleanFrom,
+          cleanTo
+        );
+
+      setBackendRoutes(
+        response.routes || []
+      );
+
+      if (
+        !response.routes ||
+        response.routes.length === 0
+      ) {
+        setRouteError(
+          "No upcoming TGSRTC routes were found for this journey."
+        );
+      }
+    } catch (error) {
+      console.error(
+        "SmartCommute route search failed:",
+        error
+      );
+
+      setBackendRoutes([]);
+
+      setRouteError(
+        error instanceof Error
+          ? error.message
+          : "Unable to find routes right now."
+      );
+    } finally {
+      setRouteLoading(false);
+    }
   };
 
-  /* ===================================================== */
+  /* ======================================================= */
   /* TRANSPORT SELECTION */
-  /* ===================================================== */
+  /* ======================================================= */
 
   const handleTransportSelect = (
     mode: TransportMode
@@ -125,8 +203,92 @@ export default function DashboardPage() {
     setSelectedMode(mode);
   };
 
+  /* ======================================================= */
+  /* LOCAL RECOMMENDED ROUTE */
+  /* ======================================================= */
+
+  const recommendedLocalRoute =
+    selectedMode
+      ? localRoutes.find(
+          (item) =>
+            item.mode === selectedMode
+        ) ?? localRoutes[0]
+      : localRoutes[0];
+
+  /* ======================================================= */
+  /* DISPLAY METRICS */
+  /* ======================================================= */
+
+  /*
+   * The current route-engine structure expects:
+   *
+   * eta
+   * cost
+   * score
+   * reliability
+   * traffic
+   * crowd
+   * delayRisk
+   *
+   * The GTFS backend currently provides:
+   *
+   * wait_minutes
+   * journey_minutes
+   * walking_minutes
+   * total_minutes
+   * score
+   *
+   * Therefore we use real GTFS values where available
+   * and retain the existing dashboard intelligence
+   * values for fields not currently provided by GTFS.
+   */
+
+  const displayEta =
+    backendBestRoute
+      ? backendBestRoute.total_minutes
+      : recommendedLocalRoute.eta;
+
+  const displayCost =
+    backendBestRoute
+      ? 20
+      : recommendedLocalRoute.cost;
+
+  const displayScore =
+    backendBestRoute
+      ? Math.max(
+          0,
+          Math.min(
+            100,
+            Math.round(
+              100 -
+                backendBestRoute.total_minutes
+            )
+          )
+        )
+      : recommendedLocalRoute.score;
+
+  const displayReliability =
+    recommendedLocalRoute.reliability;
+
+  const displayTraffic =
+    recommendedLocalRoute.traffic;
+
+  const displayCrowd =
+    recommendedLocalRoute.crowd;
+
+  const displayDelayRisk =
+    recommendedLocalRoute.delayRisk;
+
+  /* ======================================================= */
+  /* MAIN UI */
+  /* ======================================================= */
+
   return (
     <div className="min-h-screen bg-slate-50">
+
+      {/* =================================================== */}
+      {/* HEADER */}
+      {/* =================================================== */}
 
       <Header />
 
@@ -162,7 +324,9 @@ export default function DashboardPage() {
             onSearch={handleRouteSearch}
           />
 
-          {/* Current journey */}
+          {/* ================================================= */}
+          {/* CURRENT JOURNEY */}
+          {/* ================================================= */}
 
           <div className="mt-5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
 
@@ -185,6 +349,235 @@ export default function DashboardPage() {
           </div>
 
           {/* ================================================= */}
+          {/* LOADING */}
+          {/* ================================================= */}
+
+          {routeLoading && (
+            <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+
+              <div className="flex items-center gap-3">
+
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+
+                <div>
+
+                  <p className="text-sm font-bold text-blue-900">
+                    Finding TGSRTC routes...
+                  </p>
+
+                  <p className="text-xs text-blue-700">
+                    Checking GTFS schedules and upcoming buses.
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+          )}
+
+          {/* ================================================= */}
+          {/* ERROR / NOTICE */}
+          {/* ================================================= */}
+
+          {routeError && !routeLoading && (
+            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+
+              <div className="flex items-start gap-3">
+
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                  <Activity size={16} />
+                </div>
+
+                <div>
+
+                  <p className="text-sm font-bold text-amber-900">
+                    Route search notice
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-amber-800">
+                    {routeError}
+                  </p>
+
+                </div>
+
+              </div>
+
+            </div>
+          )}
+
+          {/* ================================================= */}
+          {/* REAL GTFS RESULTS */}
+          {/* ================================================= */}
+
+          {backendRoutes.length > 0 && (
+            <section className="mt-6">
+
+              <div className="mb-4 flex items-end justify-between">
+
+                <div>
+
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Live TGSRTC Route Options
+                  </h2>
+
+                  <p className="text-sm text-slate-500">
+                    Upcoming buses found from the deployed GTFS backend.
+                  </p>
+
+                </div>
+
+                <span className="hidden rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 sm:block">
+                  {backendRoutes.length} routes found
+                </span>
+
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+
+                {backendRoutes
+                  .slice(0, 6)
+                  .map(
+                    (item, index) => (
+                      <div
+                        key={`${item.trip_id}-${index}`}
+                        className={`rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+                          index === 0
+                            ? "border-blue-300 ring-1 ring-blue-100"
+                            : "border-slate-200"
+                        }`}
+                      >
+
+                        {/* HEADER */}
+
+                        <div className="flex items-start justify-between gap-3">
+
+                          <div>
+
+                            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                              Bus Route
+                            </p>
+
+                            <h3 className="mt-1 text-xl font-black text-slate-900">
+                              {item.route_short_name}
+                            </h3>
+
+                          </div>
+
+                          {index === 0 && (
+                            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+                              BEST MATCH
+                            </span>
+                          )}
+
+                        </div>
+
+                        {/* ROUTE */}
+
+                        <div className="mt-4 space-y-2">
+
+                          <div className="flex items-start justify-between gap-4 text-xs">
+
+                            <span className="text-slate-500">
+                              Boarding
+                            </span>
+
+                            <span className="text-right font-semibold text-slate-800">
+                              {item.origin_stop.stop_name}
+                            </span>
+
+                          </div>
+
+                          <div className="flex items-start justify-between gap-4 text-xs">
+
+                            <span className="text-slate-500">
+                              Destination
+                            </span>
+
+                            <span className="text-right font-semibold text-slate-800">
+                              {item.destination_stop.stop_name}
+                            </span>
+
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs">
+
+                            <span className="text-slate-500">
+                              Departure
+                            </span>
+
+                            <span className="font-semibold text-slate-800">
+                              {item.departure_time}
+                            </span>
+
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs">
+
+                            <span className="text-slate-500">
+                              Arrival
+                            </span>
+
+                            <span className="font-semibold text-slate-800">
+                              {item.arrival_time}
+                            </span>
+
+                          </div>
+
+                        </div>
+
+                        {/* METRICS */}
+
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+
+                          <div className="rounded-xl bg-slate-50 p-3 text-center">
+
+                            <p className="text-[10px] font-semibold text-slate-400">
+                              WAIT
+                            </p>
+
+                            <p className="mt-1 text-sm font-black text-slate-900">
+                              {item.wait_minutes}m
+                            </p>
+
+                          </div>
+
+                          <div className="rounded-xl bg-slate-50 p-3 text-center">
+
+                            <p className="text-[10px] font-semibold text-slate-400">
+                              JOURNEY
+                            </p>
+
+                            <p className="mt-1 text-sm font-black text-slate-900">
+                              {item.journey_minutes}m
+                            </p>
+
+                          </div>
+
+                          <div className="rounded-xl bg-blue-50 p-3 text-center">
+
+                            <p className="text-[10px] font-semibold text-blue-500">
+                              TOTAL
+                            </p>
+
+                            <p className="mt-1 text-sm font-black text-blue-700">
+                              {item.total_minutes}m
+                            </p>
+
+                          </div>
+
+                        </div>
+
+                      </div>
+                    )
+                  )}
+
+              </div>
+
+            </section>
+          )}
+
+          {/* ================================================= */}
           {/* STATS */}
           {/* ================================================= */}
 
@@ -192,33 +585,45 @@ export default function DashboardPage() {
 
             <StatCard
               title="Average ETA"
-              value={`${recommendedRoute.eta} min`}
-              subtitle="AI estimated journey time"
+              value={`${displayEta} min`}
+              subtitle={
+                backendBestRoute
+                  ? "GTFS-based route estimate"
+                  : "AI estimated journey time"
+              }
               icon={Clock3}
             />
 
             <StatCard
               title="Estimated Cost"
               value={
-                recommendedRoute.cost === 0
+                displayCost === 0
                   ? "Free"
-                  : `₹${recommendedRoute.cost}`
+                  : `₹${displayCost}`
               }
-              subtitle="Based on selected route"
+              subtitle={
+                backendBestRoute
+                  ? "Prototype TGSRTC estimate"
+                  : "Based on selected route"
+              }
               icon={IndianRupee}
             />
 
             <StatCard
               title="AI Score"
-              value={`${recommendedRoute.score}/100`}
-              subtitle="Multi-factor route score"
+              value={`${displayScore}/100`}
+              subtitle={
+                backendBestRoute
+                  ? "GTFS route optimization score"
+                  : "Multi-factor route score"
+              }
               icon={Activity}
             />
 
             <StatCard
               title="Reliability"
-              value={`${recommendedRoute.reliability}%`}
-              subtitle={`${recommendedRoute.delayRisk} delay risk`}
+              value={`${displayReliability}%`}
+              subtitle={`${displayDelayRisk} delay risk`}
               icon={TrendingDown}
             />
 
@@ -230,7 +635,9 @@ export default function DashboardPage() {
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
 
-            {/* AI */}
+            {/* ================================================= */}
+            {/* AI RECOMMENDATION */}
+            {/* ================================================= */}
 
             <section>
 
@@ -245,9 +652,11 @@ export default function DashboardPage() {
                   </h2>
 
                   <p className="text-sm text-slate-500">
-                    {selectedMode
-                      ? "Dashboard updated for your selected transport option"
-                      : "Selected using SmartCommute's route scoring engine"}
+                    {backendBestRoute
+                      ? `TGSRTC route ${backendBestRoute.route_short_name} is currently available.`
+                      : selectedMode
+                        ? "Dashboard updated for your selected transport option"
+                        : "Selected using SmartCommute's route scoring engine"}
                   </p>
 
                 </div>
@@ -263,12 +672,14 @@ export default function DashboardPage() {
               </div>
 
               <AIRecommendation
-                route={recommendedRoute}
+                route={recommendedLocalRoute}
               />
 
             </section>
 
+            {/* ================================================= */}
             {/* MAP */}
+            {/* ================================================= */}
 
             <section>
 
@@ -315,24 +726,39 @@ export default function DashboardPage() {
               </div>
 
               <span className="hidden text-xs font-semibold text-slate-400 sm:block">
-                {routes.length} options analyzed
+                {backendRoutes.length > 0
+                  ? `${backendRoutes.length} TGSRTC routes analyzed`
+                  : `${localRoutes.length} options analyzed`}
               </span>
 
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
 
-              {routes.map(
+              {localRoutes.map(
                 (item, index) => (
                   <TransportCard
                     key={item.mode}
                     type={item.mode}
-                    title={item.title}
-                    eta={`${item.eta} min`}
+                    title={
+                      index === 0 &&
+                      backendBestRoute
+                        ? `TGSRTC ${backendBestRoute.route_short_name}`
+                        : item.title
+                    }
+                    eta={
+                      index === 0 &&
+                      backendBestRoute
+                        ? `${backendBestRoute.total_minutes} min`
+                        : `${item.eta} min`
+                    }
                     cost={
-                      item.cost === 0
-                        ? "Free"
-                        : `₹${item.cost}`
+                      index === 0 &&
+                      backendBestRoute
+                        ? "₹20"
+                        : item.cost === 0
+                          ? "Free"
+                          : `₹${item.cost}`
                     }
                     crowd={
                       item.crowd === 0
@@ -347,7 +773,7 @@ export default function DashboardPage() {
                       index === 0
                     }
                     selected={
-                      recommendedRoute.mode ===
+                      recommendedLocalRoute.mode ===
                       item.mode
                     }
                     onClick={() =>
@@ -363,10 +789,14 @@ export default function DashboardPage() {
 
           </section>
 
+          {/* ================================================= */}
+          {/* LIVE TRANSPORT */}
+          {/* ================================================= */}
+
           <LiveTransport
-  from={route.from}
-  to={route.to}
-/>
+            from={route.from}
+            to={route.to}
+          />
 
           {/* ================================================= */}
           {/* ROUTE INTELLIGENCE */}
@@ -399,7 +829,7 @@ export default function DashboardPage() {
                   </p>
 
                   <span className="text-xs font-bold text-slate-700">
-                    {recommendedRoute.traffic}%
+                    {displayTraffic}%
                   </span>
 
                 </div>
@@ -409,7 +839,7 @@ export default function DashboardPage() {
                   <div
                     className="h-full rounded-full bg-blue-500 transition-all duration-500"
                     style={{
-                      width: `${recommendedRoute.traffic}%`,
+                      width: `${displayTraffic}%`,
                     }}
                   />
 
@@ -432,7 +862,7 @@ export default function DashboardPage() {
                   </p>
 
                   <span className="text-xs font-bold text-slate-700">
-                    {recommendedRoute.crowd}%
+                    {displayCrowd}%
                   </span>
 
                 </div>
@@ -442,7 +872,7 @@ export default function DashboardPage() {
                   <div
                     className="h-full rounded-full bg-purple-500 transition-all duration-500"
                     style={{
-                      width: `${recommendedRoute.crowd}%`,
+                      width: `${displayCrowd}%`,
                     }}
                   />
 
@@ -465,7 +895,7 @@ export default function DashboardPage() {
                   </p>
 
                   <span className="text-xs font-bold text-slate-700">
-                    {recommendedRoute.reliability}%
+                    {displayReliability}%
                   </span>
 
                 </div>
@@ -475,7 +905,7 @@ export default function DashboardPage() {
                   <div
                     className="h-full rounded-full bg-emerald-500 transition-all duration-500"
                     style={{
-                      width: `${recommendedRoute.reliability}%`,
+                      width: `${displayReliability}%`,
                     }}
                   />
 
@@ -498,7 +928,7 @@ export default function DashboardPage() {
                   </p>
 
                   <span className="text-xs font-black text-blue-700">
-                    {recommendedRoute.score}/100
+                    {displayScore}/100
                   </span>
 
                 </div>
@@ -508,7 +938,7 @@ export default function DashboardPage() {
                   <div
                     className="h-full rounded-full bg-blue-600 transition-all duration-500"
                     style={{
-                      width: `${recommendedRoute.score}%`,
+                      width: `${displayScore}%`,
                     }}
                   />
 
@@ -546,11 +976,35 @@ export default function DashboardPage() {
 
                   <p className="mt-1 text-xs leading-5 text-emerald-800/80">
 
-                    {selectedMode ? (
+                    {backendBestRoute ? (
+                      <>
+                        The next available TGSRTC route is{" "}
+                        <strong>
+                          {backendBestRoute.route_short_name}
+                        </strong>
+                        . It departs from{" "}
+                        <strong>
+                          {backendBestRoute.origin_stop.stop_name}
+                        </strong>{" "}
+                        at{" "}
+                        <strong>
+                          {backendBestRoute.departure_time}
+                        </strong>{" "}
+                        and reaches{" "}
+                        <strong>
+                          {backendBestRoute.destination_stop.stop_name}
+                        </strong>{" "}
+                        at{" "}
+                        <strong>
+                          {backendBestRoute.arrival_time}
+                        </strong>
+                        .
+                      </>
+                    ) : selectedMode ? (
                       <>
                         You selected{" "}
                         <strong>
-                          {recommendedRoute.title}
+                          {recommendedLocalRoute.title}
                         </strong>
                         . SmartCommute is now showing
                         the analysis for this transport
@@ -560,11 +1014,11 @@ export default function DashboardPage() {
                       <>
                         SmartCommute recommends{" "}
                         <strong>
-                          {recommendedRoute.title}
+                          {recommendedLocalRoute.title}
                         </strong>{" "}
                         with an overall score of{" "}
                         <strong>
-                          {recommendedRoute.score}/100
+                          {recommendedLocalRoute.score}/100
                         </strong>
                         .
                       </>
@@ -575,21 +1029,23 @@ export default function DashboardPage() {
                   <div className="mt-4 flex flex-wrap gap-2">
 
                     <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {recommendedRoute.eta} min ETA
+                      {backendBestRoute
+                        ? `${backendBestRoute.total_minutes} min total`
+                        : `${recommendedLocalRoute.eta} min ETA`}
                     </span>
 
                     <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {recommendedRoute.cost === 0
+                      {displayCost === 0
                         ? "Free"
-                        : `₹${recommendedRoute.cost}`}
+                        : `₹${displayCost}`}
                     </span>
 
                     <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {recommendedRoute.delayRisk} delay risk
+                      {displayDelayRisk} delay risk
                     </span>
 
                     <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold text-emerald-700">
-                      {recommendedRoute.reliability}% reliable
+                      {displayReliability}% reliable
                     </span>
 
                   </div>
@@ -624,9 +1080,9 @@ export default function DashboardPage() {
 
                   <p className="mt-1 text-xs leading-5 text-amber-800/80">
 
-                    {recommendedRoute.traffic > 70
+                    {displayTraffic > 70
                       ? "Heavy traffic detected on the selected route. Consider checking alternative transport options."
-                      : recommendedRoute.traffic > 50
+                      : displayTraffic > 50
                         ? "Moderate traffic is affecting the current journey. SmartCommute has considered this in the route score."
                         : "Traffic conditions are currently favorable for the selected route."}
 

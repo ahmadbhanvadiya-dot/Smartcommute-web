@@ -1328,10 +1328,7 @@ export default function DashboardPage() {
           {/* LIVE TRANSPORT */}
           {/* ================================================= */}
 
-          <LiveTransport
-            from={route.from}
-            to={route.to}
-          />
+          <LiveTransport/>
 
           {/* ================================================= */}
           {/* ROUTE INTELLIGENCE */}

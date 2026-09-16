@@ -109,9 +109,9 @@ export default function DashboardPage() {
   /* ======================================================= */
 
   const [route, setRoute] = useState({
-    from: "Mehdipatnam",
-    to: "Lords Institute of Engineering",
-  });
+  from: "",
+  to: "",
+});
 
   const [backendRoutes, setBackendRoutes] =
     useState<BackendRoute[]>([]);
@@ -130,6 +130,15 @@ export default function DashboardPage() {
 
   const [searchVersion, setSearchVersion] =
     useState(0);
+
+const [currentLocation, setCurrentLocation] =
+  useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+
+const [locationLoading, setLocationLoading] =
+  useState(false);
 
   /* ======================================================= */
   /* BEST ROUTE */
@@ -155,37 +164,40 @@ export default function DashboardPage() {
     from: string,
     to: string
   ) => {
-    const cleanFrom = from.trim();
-    const cleanTo = to.trim();
+   const cleanFrom = from.trim();
+const cleanTo = to.trim();
 
-    if (
-      !cleanFrom ||
-      !cleanTo
-    ) {
-      return;
-    }
+if (!cleanFrom || !cleanTo) {
+  setRouteError(
+    "Please enter both your starting location and destination."
+  );
+  setBackendRoutes([]);
+  setBackendResponse(null);
+  setSelectedRouteId(null);
+  return;
+}
 
-    setRoute({
-      from: cleanFrom,
-      to: cleanTo,
-    });
+setRoute({
+  from: cleanFrom,
+  to: cleanTo,
+});
 
-    setRouteLoading(true);
-    setRouteError(null);
-    setBackendRoutes([]);
-    setBackendResponse(null);
-    setSelectedRouteId(null);
+setRouteLoading(true);
+setRouteError(null);
+setBackendRoutes([]);
+setBackendResponse(null);
+setSelectedRouteId(null);
 
     setSearchVersion(
       (value) => value + 1
     );
 
     try {
-      const response =
-        await searchBackendRoutes(
-          cleanFrom,
-          cleanTo
-        );
+      const response = await searchBackendRoutes(
+  cleanFrom,
+  cleanTo,
+  currentLocation ?? undefined
+);
 
       const routes =
         response.routes || [];

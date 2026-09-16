@@ -265,17 +265,25 @@ export async function resolveLocation(
 
 export async function searchBackendRoutes(
   from: string,
-  to: string
+  to: string,
+  fromCoordinates?: {
+    latitude: number;
+    longitude: number;
+  }
 ): Promise<BackendRouteResponse> {
   /*
    * Resolve both requested locations.
    */
 
-  const [
-    origin,
-    destination,
-  ] = await Promise.all([
-    resolveLocation(from),
+  const [origin, destination] =
+  await Promise.all([
+    fromCoordinates
+      ? Promise.resolve({
+          lat: fromCoordinates.latitude,
+          lng: fromCoordinates.longitude,
+        })
+      : resolveLocation(from),
+
     resolveLocation(to),
   ]);
 

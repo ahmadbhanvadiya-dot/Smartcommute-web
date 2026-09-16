@@ -70,6 +70,19 @@ interface TripRouteResponse {
 interface LiveTransportMapProps {
   selectedBus?: string | null;
   onSelectBus?: (busId: string | null) => void;
+
+  searchedFrom?: string;
+  searchedTo?: string;
+
+  searchedFromCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+
+  searchedToCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 // ============================================================
@@ -158,6 +171,10 @@ function UserLocationFollower({
 export default function LiveTransportMap({
   selectedBus = null,
   onSelectBus,
+  searchedFrom,
+  searchedTo,
+  searchedFromCoordinates,
+  searchedToCoordinates,
 }: LiveTransportMapProps) {
   const [vehicles, setVehicles] = useState<
     LiveVehicle[]
@@ -556,6 +573,72 @@ export default function LiveTransportMap({
         )}
 
         {/* ================================================== */}
+        {/* SEARCHED JOURNEY */}
+        {/* ================================================== */}
+
+        {searchedFromCoordinates && (
+          <Marker
+            position={[
+              searchedFromCoordinates.latitude,
+              searchedFromCoordinates.longitude,
+            ]}
+          >
+            <Popup>
+              <div className="min-w-[170px]">
+                <p className="text-xs font-semibold text-emerald-600">
+                  START
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {searchedFrom || "Starting point"}
+                </p>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
+        {searchedToCoordinates && (
+          <Marker
+            position={[
+              searchedToCoordinates.latitude,
+              searchedToCoordinates.longitude,
+            ]}
+          >
+            <Popup>
+              <div className="min-w-[170px]">
+                <p className="text-xs font-semibold text-red-600">
+                  DESTINATION
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {searchedTo || "Destination"}
+                </p>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
+        {searchedFromCoordinates &&
+          searchedToCoordinates && (
+            <Polyline
+              positions={[
+                [
+                  searchedFromCoordinates.latitude,
+                  searchedFromCoordinates.longitude,
+                ],
+                [
+                  searchedToCoordinates.latitude,
+                  searchedToCoordinates.longitude,
+                ],
+              ]}
+              pathOptions={{
+                color: "#64748b",
+                weight: 3,
+                opacity: 0.45,
+                dashArray: "8 8",
+              }}
+            />
+          )}
+
+        {/* ================================================== */}
         {/* ACTUAL GTFS ROUTE */}
         {/* ================================================== */}
 
@@ -763,6 +846,23 @@ export default function LiveTransportMap({
         })}
 
       </MapContainer>
+
+      {searchedFrom && searchedTo && (
+        <div className="absolute left-4 top-24 z-[1000] max-w-[280px] rounded-xl bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Searched journey
+          </p>
+          <p className="mt-1 text-xs font-bold text-slate-800">
+            {searchedFrom}
+          </p>
+          <p className="my-0.5 text-[10px] text-slate-400">
+            ↓
+          </p>
+          <p className="text-xs font-bold text-slate-800">
+            {searchedTo}
+          </p>
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* LOADING */}

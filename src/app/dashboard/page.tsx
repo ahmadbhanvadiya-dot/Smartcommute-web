@@ -109,9 +109,9 @@ export default function DashboardPage() {
   /* ======================================================= */
 
   const [route, setRoute] = useState({
-  from: "",
-  to: "",
-});
+    from: "",
+    to: "",
+  });
 
   const [backendRoutes, setBackendRoutes] =
     useState<BackendRoute[]>([]);
@@ -130,59 +130,6 @@ export default function DashboardPage() {
 
   const [searchVersion, setSearchVersion] =
     useState(0);
-
-const [currentLocation, setCurrentLocation] =
-  useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
-
-const [locationLoading, setLocationLoading] =
-  useState(false);
-
-const handleUseCurrentLocation = () => {
-  if (!navigator.geolocation) {
-    setRouteError(
-      "Location services are not supported by this browser."
-    );
-    return;
-  }
-
-  setLocationLoading(true);
-  setRouteError(null);
-
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      const coordinates = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      };
-
-      setCurrentLocation(coordinates);
-
-      setLocationLoading(false);
-    },
-
-    (error) => {
-      console.error(
-        "Location error:",
-        error
-      );
-
-      setLocationLoading(false);
-
-      setRouteError(
-        "Unable to access your location. Please allow location permission and try again."
-      );
-    },
-
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 5000,
-    }
-  );
-};
 
   /* ======================================================= */
   /* BEST ROUTE */
@@ -208,46 +155,56 @@ const handleUseCurrentLocation = () => {
     from: string,
     to: string
   ) => {
-   const cleanFrom = from.trim();
-const cleanTo = to.trim();
+    const cleanFrom = from.trim();
+    const cleanTo = to.trim();
 
-if (!cleanFrom || !cleanTo) {
-  setRouteError(
-    "Please enter both your starting location and destination."
-  );
-  setBackendRoutes([]);
-  setBackendResponse(null);
-  setSelectedRouteId(null);
-  return;
-}
+    if (
+      !cleanFrom ||
+      !cleanTo
+    ) {
+      return;
+    }
 
-setRoute({
-  from: cleanFrom,
-  to: cleanTo,
-});
+    setRoute({
+      from: cleanFrom,
+      to: cleanTo,
+    });
 
-setRouteLoading(true);
-setRouteError(null);
-setBackendRoutes([]);
-setBackendResponse(null);
-setSelectedRouteId(null);
+    setRouteLoading(true);
+    setRouteError(null);
+    setBackendRoutes([]);
+    setBackendResponse(null);
+    setSelectedRouteId(null);
 
     setSearchVersion(
       (value) => value + 1
     );
 
     try {
-      const response = await searchBackendRoutes(
-  cleanFrom,
-  cleanTo,
-  currentLocation ?? undefined
-);
+      const response =
+        await searchBackendRoutes(
+          cleanFrom,
+          cleanTo
+        );
 
       const routes =
         response.routes || [];
 
       setBackendResponse(response);
       setBackendRoutes(routes);
+
+      // Make the latest searched journey available to Live Transport.
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(
+          "smartcommute:lastJourney",
+          JSON.stringify({
+            from: cleanFrom,
+            to: cleanTo,
+            fromCoordinates: response.requested_origin,
+            toCoordinates: response.requested_destination,
+          })
+        );
+      }
 
       if (routes.length === 0) {
         setRouteError(
@@ -373,14 +330,8 @@ setSelectedRouteId(null);
           {/* ================================================= */}
 
           <RouteSearch
-  onSearch={handleRouteSearch}
-  onUseCurrentLocation={
-    handleUseCurrentLocation
-  }
-  locationLoading={
-    locationLoading
-  }
-/>
+            onSearch={handleRouteSearch}
+          />
 
           {/* ================================================= */}
           {/* CURRENT JOURNEY */}

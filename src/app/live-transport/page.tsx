@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   AlertTriangle,
@@ -60,7 +60,7 @@ const initialBuses: BusInfo[] = [
   {
     id: "bus-216",
     route: "216",
-    name: "Mehdipatnam → Himayath Sagar",
+    name: "TGSRTC City Service",
     eta: 7,
     crowd: "Moderate",
     delay: 0,
@@ -69,7 +69,7 @@ const initialBuses: BusInfo[] = [
   {
     id: "bus-5k",
     route: "5K",
-    name: "Mehdipatnam → TSPA",
+    name: "TGSRTC City Service",
     eta: 12,
     crowd: "Low",
     delay: 3,
@@ -78,7 +78,7 @@ const initialBuses: BusInfo[] = [
   {
     id: "bus-102",
     route: "102",
-    name: "Mehdipatnam → Gachibowli",
+    name: "TGSRTC City Service",
     eta: 16,
     crowd: "High",
     delay: 5,
@@ -87,7 +87,7 @@ const initialBuses: BusInfo[] = [
   {
     id: "bus-8a",
     route: "8A",
-    name: "Mehdipatnam → Lakdikapul",
+    name: "TGSRTC City Service",
     eta: 4,
     crowd: "Low",
     delay: 0,
@@ -116,12 +116,53 @@ function CrowdBadge({
   );
 }
 
+interface SavedJourney {
+  from: string;
+  to: string;
+  fromCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  toCoordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+}
+
 export default function LiveTransportPage() {
   const [selectedBus, setSelectedBus] =
     useState<string | null>("bus-216");
 
   const [buses, setBuses] =
     useState(initialBuses);
+
+  const [savedJourney, setSavedJourney] =
+    useState<SavedJourney | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw =
+        sessionStorage.getItem(
+          "smartcommute:lastJourney"
+        );
+
+      if (!raw) {
+        return;
+      }
+
+      const parsed =
+        JSON.parse(raw) as SavedJourney;
+
+      if (parsed.from && parsed.to) {
+        setSavedJourney(parsed);
+      }
+    } catch (error) {
+      console.error(
+        "Unable to restore saved journey:",
+        error
+      );
+    }
+  }, []);
 
   const [lastUpdated, setLastUpdated] =
     useState("Just now");
@@ -351,6 +392,18 @@ export default function LiveTransportPage() {
               <LiveTransportMap
                 selectedBus={selectedBus}
                 onSelectBus={setSelectedBus}
+                searchedFrom={
+                  savedJourney?.from
+                }
+                searchedTo={
+                  savedJourney?.to
+                }
+                searchedFromCoordinates={
+                  savedJourney?.fromCoordinates
+                }
+                searchedToCoordinates={
+                  savedJourney?.toCoordinates
+                }
               />
 
             </section>

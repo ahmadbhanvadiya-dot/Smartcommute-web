@@ -16,7 +16,7 @@ import {
 import Header from "@/components/dashboard/Header";
 import StatCard from "@/components/dashboard/StatCard";
 import RouteSearch from "@/components/dashboard/RouteSearch";
-import LiveTransport from "@/components/dashboard/LiveTransport";
+
 
 import {
   searchBackendRoutes,
@@ -44,6 +44,30 @@ const RouteMap = dynamic(
 
           <p className="mt-1 text-xs text-slate-400">
             Preparing route visualization
+          </p>
+        </div>
+      </div>
+    ),
+  }
+);
+
+
+const LiveTransport = dynamic(
+  () => import("@/components/dashboard/LiveTransport"),
+  {
+    ssr: false,
+
+    loading: () => (
+      <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-slate-200 bg-white">
+        <div className="text-center">
+          <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+
+          <p className="text-sm font-semibold text-slate-700">
+            Loading live transport...
+          </p>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Preparing vehicle information
           </p>
         </div>
       </div>
@@ -1328,7 +1352,7 @@ export default function DashboardPage() {
           {/* LIVE TRANSPORT */}
           {/* ================================================= */}
 
-          <LiveTransport/>
+          <LiveTransport />
 
           {/* ================================================= */}
           {/* ROUTE INTELLIGENCE */}

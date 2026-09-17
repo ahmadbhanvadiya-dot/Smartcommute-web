@@ -1,34 +1,18 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  ChevronDown,
-  Clock3,
-  MapPin,
-  Navigation,
-  Package,
-  Search,
-  Truck,
-  Route as RouteIcon,
-  Fuel,
-  IndianRupee,
-  AlertCircle,
-} from "lucide-react";
+import { KeyboardEvent, useEffect, useState } from "react";
 
 const LogisticsRouteMap = dynamic(
   () => import("@/components/logistics/LogisticsRouteMap"),
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full min-h-[620px] items-center justify-center rounded-2xl bg-slate-100">
+      <div className="flex min-h-[420px] items-center justify-center bg-slate-100">
         <div className="text-center">
           <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-600" />
-          <p className="text-sm font-semibold text-slate-700">
-            Loading route map...
+          <p className="text-sm font-medium text-slate-500">
+            Loading map...
           </p>
         </div>
       </div>
@@ -36,7 +20,7 @@ const LogisticsRouteMap = dynamic(
   }
 );
 
-const API_URL =
+const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://127.0.0.1:8000";
 
@@ -44,7 +28,7 @@ interface LocationResult {
   display_name: string;
   latitude: number;
   longitude: number;
-  type: string | null;
+  type?: string | null;
 }
 
 interface Vehicle {
@@ -56,52 +40,168 @@ interface Vehicle {
   driver_cost_per_hour: number;
 }
 
+interface RouteCost {
+  fuel_litres: number;
+  fuel_cost_inr: number;
+  driver_cost_inr: number;
+  estimated_total_inr: number;
+}
+
 interface LogisticsRoute {
   route_id: string;
   alternative_number: number;
   distance_km: number;
   duration_minutes: number;
   duration_text: string;
-  estimated_cost: {
-    fuel_litres: number;
-    fuel_cost_inr: number;
-    driver_cost_inr: number;
-    estimated_total_inr: number;
-  };
+  estimated_cost: RouteCost;
   geometry: {
     type: string;
     coordinates: [number, number][];
   };
-  capacity_utilization_percent: number;
-  vehicle_suitable: boolean;
-  rank: number;
-  recommendation: string;
 }
 
 interface RouteResponse {
-  valid: boolean;
-  message?: string;
-  vehicle?: Vehicle & {
-    type: string;
+  origin: {
+    latitude: number;
+    longitude: number;
   };
-  cargo?: {
+  destination: {
+    latitude: number;
+    longitude: number;
+  };
+  valid: boolean;
+  vehicle: Vehicle;
+  cargo: {
     weight_kg: number;
     capacity_kg: number;
     utilization_percent: number;
   };
-  route_source?: string;
-  cost_method?: string;
+  route_source: string;
+  cost_method: string;
   routes: LogisticsRoute[];
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatNumber(value: number, decimals = 1) {
+  return new Intl.NumberFormat("en-IN", {
+    maximumFractionDigits: decimals,
+  }).format(value);
+}
+
+function LocationField({
+  label,
+  value,
+  placeholder,
+  results,
+  selected,
+  searching,
+  onChange,
+  onSearch,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  results: LocationResult[];
+  selected: LocationResult | null;
+  searching: boolean;
+  onChange: (value: string) => void;
+  onSearch: () => void;
+  onSelect: (location: LocationResult) => void;
+}) {
+  const handleKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onSearch();
+    }
+  };
+
+  return (
+    <div>
+      <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+        {label}
+      </label>
+
+      <div className="flex gap-2">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+
+        <button
+          type="button"
+          onClick={onSearch}
+          disabled={searching || value.trim().length < 2}
+          className="h-11 shrink-0 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {searching ? "..." : "Search"}
+        </button>
+      </div>
+
+      {selected && (
+        <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+          <div className="flex items-start gap-2">
+            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">
+                Selected
+              </p>
+
+              <p className="mt-0.5 break-words text-xs font-semibold leading-5 text-emerald-900">
+                {selected.display_name}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {results.length > 0 && !selected && (
+        <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+          {results.map((result, index) => (
+            <button
+              key={`${result.latitude}-${result.longitude}-${index}`}
+              type="button"
+              onClick={() => onSelect(result)}
+              className="block w-full border-b border-slate-100 px-3 py-3 text-left transition last:border-b-0 hover:bg-emerald-50"
+            >
+              <p className="break-words text-xs font-semibold leading-5 text-slate-800">
+                {result.display_name}
+              </p>
+
+              {result.type && (
+                <p className="mt-1 text-[10px] uppercase tracking-wider text-slate-400">
+                  {result.type}
+                </p>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function LogisticsRoutesPage() {
   const [fromQuery, setFromQuery] = useState("");
   const [toQuery, setToQuery] = useState("");
 
-  const [fromResults, setFromResults] =
-    useState<LocationResult[]>([]);
-  const [toResults, setToResults] =
-    useState<LocationResult[]>([]);
+  const [fromResults, setFromResults] = useState<LocationResult[]>(
+    []
+  );
+  const [toResults, setToResults] = useState<LocationResult[]>([]);
 
   const [origin, setOrigin] =
     useState<LocationResult | null>(null);
@@ -109,8 +209,7 @@ export default function LogisticsRoutesPage() {
   const [destination, setDestination] =
     useState<LocationResult | null>(null);
 
-  const [vehicles, setVehicles] =
-    useState<Vehicle[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   const [vehicleType, setVehicleType] =
     useState("medium_truck");
@@ -118,8 +217,7 @@ export default function LogisticsRoutesPage() {
   const [cargoWeight, setCargoWeight] =
     useState("1200");
 
-  const [routes, setRoutes] =
-    useState<LogisticsRoute[]>([]);
+  const [routes, setRoutes] = useState<LogisticsRoute[]>([]);
 
   const [selectedRouteId, setSelectedRouteId] =
     useState<string | null>(null);
@@ -130,11 +228,13 @@ export default function LogisticsRoutesPage() {
   const [searchingTo, setSearchingTo] =
     useState(false);
 
-  const [loadingRoutes, setLoadingRoutes] =
+  const [calculating, setCalculating] =
     useState(false);
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const [loadingVehicles, setLoadingVehicles] =
+    useState(true);
+
+  const [error, setError] = useState("");
 
   const [routeResponse, setRouteResponse] =
     useState<RouteResponse | null>(null);
@@ -142,8 +242,10 @@ export default function LogisticsRoutesPage() {
   useEffect(() => {
     async function loadVehicles() {
       try {
+        setLoadingVehicles(true);
+
         const response = await fetch(
-          `${API_URL}/api/logistics/vehicles`
+          `${API_BASE_URL}/api/logistics/vehicles`
         );
 
         if (!response.ok) {
@@ -153,8 +255,22 @@ export default function LogisticsRoutesPage() {
         const data = await response.json();
 
         setVehicles(data.vehicles || []);
+
+        if (
+          data.vehicles?.length &&
+          !data.vehicles.some(
+            (vehicle: Vehicle) => vehicle.type === vehicleType
+          )
+        ) {
+          setVehicleType(data.vehicles[0].type);
+        }
       } catch (err) {
         console.error(err);
+        setError(
+          "Could not load vehicle types. Check that the logistics API is running."
+        );
+      } finally {
+        setLoadingVehicles(false);
       }
     }
 
@@ -163,72 +279,74 @@ export default function LogisticsRoutesPage() {
 
   async function searchLocation(
     query: string,
-    side: "from" | "to"
+    setResults: (results: LocationResult[]) => void,
+    setSearching: (value: boolean) => void
   ) {
     if (query.trim().length < 2) {
-      if (side === "from") {
-        setFromResults([]);
-      } else {
-        setToResults([]);
-      }
-
       return;
     }
 
-    if (side === "from") {
-      setSearchingFrom(true);
-    } else {
-      setSearchingTo(true);
-    }
-
     try {
+      setError("");
+      setSearching(true);
+      setResults([]);
+
       const response = await fetch(
-        `${API_URL}/api/logistics/locations/search?q=${encodeURIComponent(
+        `${API_BASE_URL}/api/logistics/locations/search?q=${encodeURIComponent(
           query.trim()
         )}`
       );
 
-      if (!response.ok) {
-        throw new Error("Location search failed.");
-      }
-
       const data = await response.json();
 
-      if (side === "from") {
-        setFromResults(data.results || []);
-      } else {
-        setToResults(data.results || []);
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Location search failed."
+        );
+      }
+
+      setResults(data.results || []);
+
+      if (!data.results?.length) {
+        setError(
+          `No locations found for "${query.trim()}".`
+        );
       }
     } catch (err) {
       console.error(err);
 
-      if (side === "from") {
-        setFromResults([]);
-      } else {
-        setToResults([]);
-      }
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Location search failed."
+      );
     } finally {
-      if (side === "from") {
-        setSearchingFrom(false);
-      } else {
-        setSearchingTo(false);
-      }
+      setSearching(false);
     }
   }
 
+  function selectOrigin(location: LocationResult) {
+    setOrigin(location);
+    setFromQuery(location.display_name);
+    setFromResults([]);
+  }
+
+  function selectDestination(location: LocationResult) {
+    setDestination(location);
+    setToQuery(location.display_name);
+    setToResults([]);
+  }
+
   async function calculateRoutes() {
-    setError(null);
-    setRoutes([]);
-    setRouteResponse(null);
-    setSelectedRouteId(null);
+    setError("");
 
     if (!origin) {
-      setError("Please select a starting location.");
+      setError("Please search and select an origin.");
       return;
     }
 
     if (!destination) {
-      setError("Please select a destination.");
+      setError("Please search and select a destination.");
       return;
     }
 
@@ -239,16 +357,35 @@ export default function LogisticsRoutesPage() {
       return;
     }
 
-    setLoadingRoutes(true);
+    const selectedVehicle = vehicles.find(
+      (vehicle) => vehicle.type === vehicleType
+    );
+
+    if (
+      selectedVehicle &&
+      weight > selectedVehicle.capacity_kg
+    ) {
+      setError(
+        `This vehicle can carry up to ${formatNumber(
+          selectedVehicle.capacity_kg,
+          0
+        )} kg.`
+      );
+      return;
+    }
 
     try {
+      setCalculating(true);
+      setRoutes([]);
+      setSelectedRouteId(null);
+      setRouteResponse(null);
+
       const response = await fetch(
-        `${API_URL}/api/logistics/routes`,
+        `${API_BASE_URL}/api/logistics/routes`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Accept: "application/json",
           },
           body: JSON.stringify({
             origin: {
@@ -265,24 +402,15 @@ export default function LogisticsRoutesPage() {
         }
       );
 
-      const data: RouteResponse = await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.message || "Route calculation failed."
+          data.detail || "Route calculation failed."
         );
       }
 
       setRouteResponse(data);
-
-      if (!data.valid) {
-        setError(
-          data.message ||
-            "No suitable route could be calculated."
-        );
-        return;
-      }
-
       setRoutes(data.routes || []);
 
       if (data.routes?.length) {
@@ -294,10 +422,10 @@ export default function LogisticsRoutesPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "Unable to calculate routes."
+          : "Route calculation failed."
       );
     } finally {
-      setLoadingRoutes(false);
+      setCalculating(false);
     }
   }
 
@@ -312,668 +440,560 @@ export default function LogisticsRoutesPage() {
     ) || null;
 
   return (
-    <main className="min-h-screen bg-[#f7f9fc] text-slate-900">
-      <div className="min-h-screen px-4 py-6 lg:ml-64 lg:px-8">
-        <div className="mx-auto max-w-[1500px]">
-
-          {/* Header */}
-          <header className="mb-6 flex items-center justify-between">
+    <main className="min-h-screen bg-slate-50 pt-16 lg:ml-64 lg:pt-0">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+        {/* Header */}
+        <header className="mb-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-                <span>Logistics</span>
-                <span>/</span>
-                <span className="text-emerald-600">
-                  Freight Routes
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">
+                  Logistics Intelligence
                 </span>
               </div>
 
-              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
                 Freight Route Planner
               </h1>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Plan freight movement using real road-network data,
-                vehicle capacity and operating-cost estimates.
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                Calculate road routes for freight using real
+                OpenStreetMap road data, vehicle capacity and
+                estimated operating costs.
               </p>
             </div>
 
-            <div className="hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm md:flex">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                <Truck size={18} />
-              </div>
-
-              <div>
-                <p className="text-xs font-bold text-slate-900">
-                  Route Optimizer
-                </p>
-                <p className="text-[10px] text-emerald-600">
-                  Online
-                </p>
-              </div>
+            <div className="hidden rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:block">
+              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                Route Engine
+              </p>
+              <p className="mt-1 text-sm font-bold text-slate-800">
+                OpenStreetMap / OSRM
+              </p>
             </div>
-          </header>
+          </div>
+        </header>
 
-          <div className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-sm font-medium text-red-700">
+              {error}
+            </p>
+          </div>
+        )}
 
-            {/* Planner */}
-            <section className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {/* Main planner */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[380px_minmax(0,1fr)]">
+          {/* Controls */}
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="mb-5">
+              <h2 className="text-base font-bold text-slate-900">
+                Shipment details
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Define the freight movement and calculate
+                available road routes.
+              </p>
+            </div>
 
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                  <RouteIcon size={19} />
-                </div>
-
-                <div>
-                  <h2 className="font-bold text-slate-900">
-                    Shipment Details
-                  </h2>
-
-                  <p className="text-xs text-slate-400">
-                    Enter your freight requirements
-                  </p>
-                </div>
-              </div>
-
-              {/* FROM */}
+            <div className="space-y-5">
               <LocationField
-                label="From"
-                icon={<MapPin size={16} />}
+                label="Origin"
                 value={fromQuery}
-                loading={searchingFrom}
+                placeholder="Search pickup location"
                 results={fromResults}
-                placeholder="Search any starting location"
+                selected={origin}
+                searching={searchingFrom}
                 onChange={(value) => {
                   setFromQuery(value);
                   setOrigin(null);
-                }}
-                onSearch={() =>
-                  searchLocation(fromQuery, "from")
-                }
-                onSelect={(location) => {
-                  setOrigin(location);
-                  setFromQuery(location.display_name);
                   setFromResults([]);
                 }}
+                onSearch={() =>
+                  searchLocation(
+                    fromQuery,
+                    setFromResults,
+                    setSearchingFrom
+                  )
+                }
+                onSelect={selectOrigin}
               />
 
-              {/* Arrow */}
-              <div className="relative my-1 ml-5 h-6 border-l border-dashed border-slate-300">
-                <div className="absolute -left-[4px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-slate-300" />
-              </div>
-
-              {/* TO */}
               <LocationField
                 label="Destination"
-                icon={<Navigation size={16} />}
                 value={toQuery}
-                loading={searchingTo}
+                placeholder="Search delivery location"
                 results={toResults}
-                placeholder="Search any destination"
+                selected={destination}
+                searching={searchingTo}
                 onChange={(value) => {
                   setToQuery(value);
                   setDestination(null);
-                }}
-                onSearch={() =>
-                  searchLocation(toQuery, "to")
-                }
-                onSelect={(location) => {
-                  setDestination(location);
-                  setToQuery(location.display_name);
                   setToResults([]);
                 }}
+                onSearch={() =>
+                  searchLocation(
+                    toQuery,
+                    setToResults,
+                    setSearchingTo
+                  )
+                }
+                onSelect={selectDestination}
               />
 
-              <div className="my-6 border-t border-slate-100" />
-
-              {/* Cargo */}
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
-                Cargo Weight
-              </label>
-
-              <div className="relative mb-5">
-                <Package
-                  size={17}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-
-                <input
-                  type="number"
-                  min="1"
-                  value={cargoWeight}
-                  onChange={(e) =>
-                    setCargoWeight(e.target.value)
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-14 text-sm font-semibold outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                />
-
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                  kg
-                </span>
-              </div>
-
-              {/* Vehicle */}
-              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
-                Vehicle
-              </label>
-
-              <div className="relative mb-5">
-                <Truck
-                  size={17}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+              <div>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Vehicle type
+                </label>
 
                 <select
                   value={vehicleType}
-                  onChange={(e) =>
-                    setVehicleType(e.target.value)
+                  onChange={(event) =>
+                    setVehicleType(event.target.value)
                   }
-                  className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-10 text-sm font-semibold outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  disabled={loadingVehicles}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 disabled:opacity-50"
                 >
-                  {vehicles.length === 0 && (
-                    <option value="medium_truck">
-                      Loading vehicles...
-                    </option>
-                  )}
-
                   {vehicles.map((vehicle) => (
                     <option
                       key={vehicle.type}
                       value={vehicle.type}
                     >
                       {vehicle.label} —{" "}
-                      {vehicle.capacity_kg.toLocaleString(
-                        "en-IN"
+                      {formatNumber(
+                        vehicle.capacity_kg,
+                        0
                       )}{" "}
                       kg
                     </option>
                   ))}
                 </select>
 
-                <ChevronDown
-                  size={16}
-                  className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+                {selectedVehicle && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-slate-50 p-2.5">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                        Capacity
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-700">
+                        {formatNumber(
+                          selectedVehicle.capacity_kg,
+                          0
+                        )}{" "}
+                        kg
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-50 p-2.5">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                        Efficiency
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-700">
+                        {formatNumber(
+                          selectedVehicle.fuel_efficiency_kmpl,
+                          1
+                        )}{" "}
+                        km/L
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* Vehicle capacity */}
-              {selectedVehicle && (
-                <div className="mb-5 rounded-xl bg-slate-50 p-3">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-500">
-                      Vehicle capacity
-                    </span>
+              <div>
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Cargo weight
+                </label>
 
-                    <span className="font-bold text-slate-800">
-                      {selectedVehicle.capacity_kg.toLocaleString(
-                        "en-IN"
-                      )}{" "}
-                      kg
-                    </span>
-                  </div>
-
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className="h-full rounded-full bg-emerald-500 transition-all"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          (Number(cargoWeight) /
-                            selectedVehicle.capacity_kg) *
-                            100
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Error */}
-              {error && (
-                <div className="mb-4 flex gap-3 rounded-xl border border-red-100 bg-red-50 p-3">
-                  <AlertCircle
-                    size={17}
-                    className="mt-0.5 shrink-0 text-red-500"
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    value={cargoWeight}
+                    onChange={(event) =>
+                      setCargoWeight(event.target.value)
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-14 text-sm font-medium text-slate-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                    placeholder="1200"
                   />
 
-                  <p className="text-xs font-medium leading-5 text-red-700">
-                    {error}
-                  </p>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
+                    kg
+                  </span>
                 </div>
-              )}
 
-              {/* Calculate */}
+                {selectedVehicle &&
+                  Number(cargoWeight) > 0 && (
+                    <div className="mt-2">
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-[10px] font-medium text-slate-400">
+                          Capacity utilization
+                        </span>
+
+                        <span className="text-[10px] font-bold text-slate-600">
+                          {formatNumber(
+                            Math.min(
+                              (Number(cargoWeight) /
+                                selectedVehicle.capacity_kg) *
+                                100,
+                              100
+                            ),
+                            0
+                          )}
+                          %
+                        </span>
+                      </div>
+
+                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{
+                            width: `${Math.min(
+                              (Number(cargoWeight) /
+                                selectedVehicle.capacity_kg) *
+                                100,
+                              100
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+              </div>
+
               <button
                 type="button"
-                disabled={loadingRoutes}
                 onClick={calculateRoutes}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={
+                  calculating ||
+                  !origin ||
+                  !destination ||
+                  !cargoWeight
+                }
+                className="flex h-12 w-full items-center justify-center rounded-xl bg-emerald-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {loadingRoutes ? (
+                {calculating ? (
                   <>
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                     Calculating routes...
                   </>
                 ) : (
-                  <>
-                    <Search size={17} />
-                    Find Freight Routes
-                  </>
+                  "Calculate Freight Routes"
                 )}
               </button>
 
-              <p className="mt-3 text-center text-[10px] leading-4 text-slate-400">
-                Road geometry: OpenStreetMap / OSRM
-                <br />
-                Operating cost is an estimate based on vehicle assumptions.
+              <p className="text-center text-[10px] leading-4 text-slate-400">
+                Location search © OpenStreetMap contributors
               </p>
-            </section>
+            </div>
+          </section>
 
-            {/* RIGHT */}
-            <div className="space-y-5">
+          {/* Map */}
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <LogisticsRouteMap
+  origin={origin}
+  destination={destination}
+  routes={routes}
+  selectedRouteId={selectedRouteId}
+/>
+          </section>
+        </div>
 
-              {/* Map */}
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-                <LogisticsRouteMap
-                  origin={origin}
-                  destination={destination}
-                  routes={routes}
-                  selectedRouteId={selectedRouteId}
-                />
-              </section>
+        {/* Results */}
+        {routeResponse && routes.length > 0 && (
+          <section className="mt-5 space-y-5">
+            {/* Summary */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-600">
+                    Route analysis complete
+                  </p>
 
-              {/* Results */}
-              {routes.length > 0 && (
-                <section>
-                  <div className="mb-3 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900">
-                        Available Routes
-                      </h2>
+                  <h2 className="mt-1 text-lg font-bold text-slate-900">
+                    {routeResponse.vehicle.label}
+                  </h2>
 
-                      <p className="text-xs text-slate-400">
-                        {routes.length} road route
-                        {routes.length === 1 ? "" : "s"} found
-                      </p>
-                    </div>
-
-                    {routeResponse?.route_source && (
-                      <span className="hidden rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-semibold text-slate-500 sm:block">
-                        {routeResponse.route_source}
-                      </span>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formatNumber(
+                      routeResponse.cargo.weight_kg,
+                      0
+                    )}{" "}
+                    kg cargo ·{" "}
+                    {formatNumber(
+                      routeResponse.cargo.utilization_percent,
+                      0
                     )}
-                  </div>
-
-                  <div className="grid gap-3">
-                    {routes.map((route) => {
-                      const selected =
-                        route.route_id === selectedRouteId;
-
-                      return (
-                        <button
-                          key={route.route_id}
-                          type="button"
-                          onClick={() =>
-                            setSelectedRouteId(
-                              route.route_id
-                            )
-                          }
-                          className={`w-full rounded-2xl border p-4 text-left transition ${
-                            selected
-                              ? "border-emerald-400 bg-emerald-50/50 shadow-sm"
-                              : "border-slate-200 bg-white hover:border-slate-300"
-                          }`}
-                        >
-                          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-
-                            <div className="flex items-start gap-3">
-                              <div
-                                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                                  selected
-                                    ? "bg-emerald-600 text-white"
-                                    : "bg-slate-100 text-slate-500"
-                                }`}
-                              >
-                                <RouteIcon size={18} />
-                              </div>
-
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="font-bold text-slate-900">
-                                    Route {route.alternative_number}
-                                  </p>
-
-                                  {route.rank === 1 && (
-                                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-700">
-                                      Recommended
-                                    </span>
-                                  )}
-                                </div>
-
-                                <p className="mt-1 text-xs text-slate-400">
-                                  {route.recommendation}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-5 md:min-w-[430px]">
-                              <Metric
-                                icon={<RouteIcon size={14} />}
-                                label="Distance"
-                                value={`${route.distance_km} km`}
-                              />
-
-                              <Metric
-                                icon={<Clock3 size={14} />}
-                                label="Duration"
-                                value={route.duration_text}
-                              />
-
-                              <Metric
-                                icon={<IndianRupee size={14} />}
-                                label="Est. Cost"
-                                value={`₹${route.estimated_cost.estimated_total_inr.toLocaleString(
-                                  "en-IN",
-                                  {
-                                    maximumFractionDigits: 0,
-                                  }
-                                )}`}
-                              />
-                            </div>
-
-                          </div>
-
-                          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-200/70 pt-3 md:grid-cols-4">
-
-                            <SmallMetric
-                              icon={<Fuel size={14} />}
-                              label="Fuel"
-                              value={`${route.estimated_cost.fuel_litres} L`}
-                            />
-
-                            <SmallMetric
-                              icon={<IndianRupee size={14} />}
-                              label="Fuel cost"
-                              value={`₹${route.estimated_cost.fuel_cost_inr.toLocaleString(
-                                "en-IN",
-                                {
-                                  maximumFractionDigits: 0,
-                                }
-                              )}`}
-                            />
-
-                            <SmallMetric
-                              icon={<Clock3 size={14} />}
-                              label="Driver"
-                              value={`₹${route.estimated_cost.driver_cost_inr.toLocaleString(
-                                "en-IN",
-                                {
-                                  maximumFractionDigits: 0,
-                                }
-                              )}`}
-                            />
-
-                            <SmallMetric
-                              icon={<Package size={14} />}
-                              label="Capacity"
-                              value={`${route.capacity_utilization_percent}%`}
-                            />
-
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
-
-              {/* Selected route summary */}
-              {selectedRoute && routeResponse?.cargo && (
-                <section className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
-
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2
-                          size={18}
-                          className="text-emerald-600"
-                        />
-
-                        <h3 className="font-bold text-slate-900">
-                          Route {selectedRoute.alternative_number} selected
-                        </h3>
-                      </div>
-
-                      <p className="mt-1 text-xs text-slate-500">
-                        {selectedRoute.distance_km} km •{" "}
-                        {selectedRoute.duration_text} •{" "}
-                        {selectedVehicle?.label}
-                      </p>
-                    </div>
-
-                    <div className="text-left md:text-right">
-                      <p className="text-xs text-slate-400">
-                        Estimated operating cost
-                      </p>
-
-                      <p className="text-2xl font-black text-slate-950">
-                        ₹
-                        {selectedRoute.estimated_cost.estimated_total_inr.toLocaleString(
-                          "en-IN",
-                          {
-                            maximumFractionDigits: 0,
-                          }
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 rounded-xl bg-slate-50 p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-500">
-                        Cargo utilization
-                      </span>
-
-                      <span className="text-xs font-black text-slate-900">
-                        {routeResponse.cargo.utilization_percent}%
-                      </span>
-                    </div>
-
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{
-                          width: `${Math.min(
-                            100,
-                            routeResponse.cargo
-                              .utilization_percent
-                          )}%`,
-                        }}
-                      />
-                    </div>
-
-                    <div className="mt-2 flex justify-between text-[10px] text-slate-400">
-                      <span>
-                        {routeResponse.cargo.weight_kg.toLocaleString(
-                          "en-IN"
-                        )}{" "}
-                        kg cargo
-                      </span>
-
-                      <span>
-                        {routeResponse.cargo.capacity_kg.toLocaleString(
-                          "en-IN"
-                        )}{" "}
-                        kg capacity
-                      </span>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {/* Initial state */}
-              {routes.length === 0 && !loadingRoutes && (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                    <Truck size={22} />
-                  </div>
-
-                  <h3 className="mt-4 font-bold text-slate-800">
-                    Ready to plan your shipment
-                  </h3>
-
-                  <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-slate-400">
-                    Search for any origin and destination,
-                    select a suitable vehicle, enter the cargo
-                    weight and calculate real road routes.
+                    % capacity utilization
                   </p>
                 </div>
-              )}
 
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="rounded-xl bg-slate-50 px-4 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Routes
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {routes.length}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 px-4 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Capacity
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {formatNumber(
+                        routeResponse.cargo.utilization_percent,
+                        0
+                      )}
+                      %
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 px-4 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Source
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-900">
+                      OSRM
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 px-4 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Cost model
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-900">
+                      Operating
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </main>
-  );
-}
 
-function LocationField({
-  label,
-  icon,
-  value,
-  loading,
-  results,
-  placeholder,
-  onChange,
-  onSearch,
-  onSelect,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  value: string;
-  loading: boolean;
-  results: LocationResult[];
-  placeholder: string;
-  onChange: (value: string) => void;
-  onSearch: () => void;
-  onSelect: (location: LocationResult) => void;
-}) {
-  return (
-    <div>
-      <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
-        {label}
-      </label>
-
-      <div className="relative">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600">
-          {icon}
-        </div>
-
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              onSearch();
-            }
-          }}
-          placeholder={placeholder}
-          className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-12 text-sm font-medium outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-        />
-
-        <button
-          type="button"
-          onClick={onSearch}
-          className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
-          aria-label={`Search ${label}`}
-        >
-          {loading ? (
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-600" />
-          ) : (
-            <Search size={16} />
-          )}
-        </button>
-      </div>
-
-      {results.length > 0 && (
-        <div className="relative z-30 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-          {results.map((location, index) => (
-            <button
-              key={`${location.latitude}-${location.longitude}-${index}`}
-              type="button"
-              onClick={() => onSelect(location)}
-              className="block w-full border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-emerald-50"
-            >
-              <div className="flex gap-3">
-                <MapPin
-                  size={15}
-                  className="mt-0.5 shrink-0 text-emerald-600"
-                />
-
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold leading-5 text-slate-800">
-                    {location.display_name}
-                  </p>
-
-                  <p className="mt-1 text-[10px] text-slate-400">
-                    {location.type || "location"}
+            {/* Route cards */}
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">
+                    Available routes
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Select a route to highlight it on the map.
                   </p>
                 </div>
               </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-        {icon}
-        {label}
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                {routes.map((route, index) => {
+                  const selected =
+                    route.route_id === selectedRouteId;
+
+                  return (
+                    <button
+                      key={route.route_id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedRouteId(route.route_id)
+                      }
+                      className={`rounded-2xl border p-4 text-left transition ${
+                        selected
+                          ? "border-emerald-300 bg-emerald-50/60 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold ${
+                                selected
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {index + 1}
+                            </span>
+
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">
+                                Route{" "}
+                                {route.alternative_number}
+                              </p>
+
+                              <p className="text-[10px] text-slate-400">
+                                {selected
+                                  ? "Selected"
+                                  : "Alternative"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-slate-900">
+                            {formatCurrency(
+                              route.estimated_cost
+                                .estimated_total_inr
+                            )}
+                          </p>
+
+                          <p className="text-[10px] text-slate-400">
+                            estimated operating cost
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl bg-white/80 p-2.5">
+                          <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                            Distance
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-slate-700">
+                            {formatNumber(
+                              route.distance_km,
+                              1
+                            )}{" "}
+                            km
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl bg-white/80 p-2.5">
+                          <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                            Time
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-slate-700">
+                            {route.duration_text}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl bg-white/80 p-2.5">
+                          <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                            Fuel
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-slate-700">
+                            {formatNumber(
+                              route.estimated_cost
+                                .fuel_litres,
+                              1
+                            )}{" "}
+                            L
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between border-t border-slate-200/70 pt-3">
+                        <span className="text-[10px] text-slate-400">
+                          Fuel ₹
+                          {formatNumber(
+                            route.estimated_cost
+                              .fuel_cost_inr,
+                            0
+                          )}
+                        </span>
+
+                        <span className="text-[10px] text-slate-400">
+                          Driver ₹
+                          {formatNumber(
+                            route.estimated_cost
+                              .driver_cost_inr,
+                            0
+                          )}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Selected route */}
+            {selectedRoute && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 sm:p-5">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-600">
+                      Selected route
+                    </p>
+
+                    <h3 className="mt-1 text-lg font-bold text-emerald-950">
+                      Route{" "}
+                      {selectedRoute.alternative_number}
+                    </h3>
+
+                    <p className="mt-1 text-xs text-emerald-700">
+                      {selectedRoute.distance_km.toFixed(1)} km
+                      {" · "}
+                      {selectedRoute.duration_text}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-xl bg-white/80 px-4 py-3">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                        Total
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {formatCurrency(
+                          selectedRoute.estimated_cost
+                            .estimated_total_inr
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white/80 px-4 py-3">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                        Fuel
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {formatCurrency(
+                          selectedRoute.estimated_cost
+                            .fuel_cost_inr
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white/80 px-4 py-3">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                        Driver
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {formatCurrency(
+                          selectedRoute.estimated_cost
+                            .driver_cost_inr
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white/80 px-4 py-3">
+                      <p className="text-[9px] uppercase tracking-wider text-slate-400">
+                        Fuel used
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-900">
+                        {formatNumber(
+                          selectedRoute.estimated_cost
+                            .fuel_litres,
+                          1
+                        )}{" "}
+                        L
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <p className="text-center text-[10px] leading-5 text-slate-400">
+              Routes are calculated using OpenStreetMap road
+              data through OSRM. Operating costs are estimates
+              based on the selected vehicle's fuel and driver
+              parameters.
+            </p>
+          </section>
+        )}
       </div>
-
-      <p className="mt-1 text-sm font-black text-slate-900">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function SmallMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="text-slate-400">{icon}</div>
-
-      <div>
-        <p className="text-[9px] uppercase tracking-wider text-slate-400">
-          {label}
-        </p>
-
-        <p className="text-xs font-bold text-slate-700">
-          {value}
-        </p>
-      </div>
-    </div>
+    </main>
   );
 }

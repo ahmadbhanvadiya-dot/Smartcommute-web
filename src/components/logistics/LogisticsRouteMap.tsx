@@ -92,25 +92,50 @@ const destinationIcon = L.divIcon({
 function FitMap({
   origin,
   destination,
+  routes,
+  selectedRouteId,
 }: {
   origin: LocationPoint | null;
   destination: LocationPoint | null;
+  routes: LogisticsRoute[];
+  selectedRouteId: string | null;
 }) {
   const map = useMap();
 
   useEffect(() => {
     if (!origin || !destination) return;
 
-    const bounds = L.latLngBounds(
-      [origin.latitude, origin.longitude],
-      [destination.latitude, destination.longitude]
+    const selectedRoute = routes.find(
+      (route) => route.route_id === selectedRouteId
     );
+
+    const points: [number, number][] = [
+      [origin.latitude, origin.longitude],
+      [destination.latitude, destination.longitude],
+    ];
+
+    if (selectedRoute?.geometry?.coordinates?.length) {
+      selectedRoute.geometry.coordinates.forEach(
+        ([lng, lat]) => {
+          points.push([lat, lng]);
+        }
+      );
+    }
+
+    const bounds = L.latLngBounds(points);
 
     map.fitBounds(bounds, {
       padding: [50, 50],
       maxZoom: 13,
+      animate: true,
     });
-  }, [origin, destination, map]);
+  }, [
+    origin,
+    destination,
+    routes,
+    selectedRouteId,
+    map,
+  ]);
 
   return null;
 }
@@ -137,9 +162,11 @@ export default function LogisticsRouteMap({
         />
 
         <FitMap
-          origin={origin}
-          destination={destination}
-        />
+  origin={origin}
+  destination={destination}
+  routes={routes}
+  selectedRouteId={selectedRouteId}
+/>
 
         {origin && (
           <Marker

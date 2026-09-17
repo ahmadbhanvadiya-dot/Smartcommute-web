@@ -1,0 +1,40 @@
+[
+  {
+    "shipment_id": "SC-FDF5F851",
+    "origin": {
+      "name": "Mumbai Airport",
+      "latitude": 19.0896,
+      "longitude": 72.8656
+    },
+    "destination": {
+      "name": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567
+    },
+    "cargo_weight_kg": 1200.0,
+    "vehicle_type": "medium_truck",
+    "status": "Pending",
+    "notes": "Test shipment",
+    "created_at": "2026-09-17T21:13:01.498937",
+    "updated_at": "2026-09-17T21:13:01.498937"
+  },
+  {
+    "shipment_id": "SC-B6D797BC",
+    "origin": {
+      "name": "Mumbai Airport",
+      "latitude": 19.0896,
+      "longitude": 72.8656
+    },
+    "destination": {
+      "name": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567
+    },
+    "cargo_weight_kg": 1200.0,
+    "vehicle_type": "medium_truck",
+    "status": "Pending",
+    "notes": "Test shipment",
+    "created_at": "2026-09-17T21:13:04.574587",
+    "updated_at": "2026-09-17T21:13:04.574587"
+  }
+]

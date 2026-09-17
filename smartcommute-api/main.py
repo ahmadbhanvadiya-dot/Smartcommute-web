@@ -22,6 +22,14 @@ from services.logistics_router import (
     build_logistics_routes,
 )
 
+from services.shipment_service import (
+    VALID_STATUSES,
+    list_shipments,
+    get_shipment,
+    create_shipment,
+    update_shipment,
+    delete_shipment,
+)
 
 # ============================================================
 # SMARTCOMMUTE AI API
@@ -2567,7 +2575,55 @@ class LogisticsRouteRequest(BaseModel):
         max_length=50,
     )
 
+class ShipmentCoordinate(BaseModel):
+    name: str = Field(
+        ...,
+        min_length=2,
+        max_length=200,
+    )
 
+    latitude: float = Field(
+        ...,
+        ge=-90,
+        le=90,
+    )
+
+    longitude: float = Field(
+        ...,
+        ge=-180,
+        le=180,
+    )
+
+
+class CreateShipmentRequest(BaseModel):
+    origin: ShipmentCoordinate
+    destination: ShipmentCoordinate
+
+    cargo_weight_kg: float = Field(
+        ...,
+        gt=0,
+        le=100000,
+    )
+
+    vehicle_type: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+    )
+
+    notes: str = Field(
+        default="",
+        max_length=1000,
+    )
+
+
+class UpdateShipmentRequest(BaseModel):
+    status: str | None = None
+
+    notes: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
 
 @app.get("/api/logistics/vehicles")
 def logistics_vehicles():
@@ -2677,6 +2733,139 @@ def logistics_routes(
             detail=str(exc),
         )
 
+
+# ============================================================
+# SHIPMENTS
+# ============================================================
+
+
+@app.get("/api/logistics/shipments")
+def get_shipments():
+    shipments = list_shipments()
+
+    return {
+        "count": len(shipments),
+        "shipments": shipments,
+    }
+
+
+@app.get("/api/logistics/shipments/{shipment_id}")
+def get_shipment_by_id(
+    shipment_id: str,
+):
+    shipment = get_shipment(shipment_id)
+
+    if shipment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment not found.",
+        )
+
+    return shipment
+
+
+@app.post("/api/logistics/shipments")
+def create_new_shipment(
+    request: CreateShipmentRequest,
+):
+    vehicle = VEHICLES.get(
+        request.vehicle_type
+    )
+
+    if vehicle is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid vehicle type.",
+        )
+
+    if (
+        request.cargo_weight_kg
+        > vehicle["capacity_kg"]
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cargo weight exceeds the "
+                f"{vehicle['label']} capacity of "
+                f"{vehicle['capacity_kg']} kg."
+            ),
+        )
+
+    shipment = create_shipment(
+        origin_name=request.origin.name,
+        origin_latitude=request.origin.latitude,
+        origin_longitude=request.origin.longitude,
+        destination_name=request.destination.name,
+        destination_latitude=request.destination.latitude,
+        destination_longitude=request.destination.longitude,
+        cargo_weight_kg=request.cargo_weight_kg,
+        vehicle_type=request.vehicle_type,
+        notes=request.notes,
+    )
+
+    return {
+        "message": "Shipment created successfully.",
+        "shipment": shipment,
+    }
+
+
+@app.patch(
+    "/api/logistics/shipments/{shipment_id}"
+)
+def update_existing_shipment(
+    shipment_id: str,
+    request: UpdateShipmentRequest,
+):
+    if request.status is not None:
+        if request.status not in VALID_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid status. Allowed values: "
+                    + ", ".join(
+                        sorted(VALID_STATUSES)
+                    )
+                ),
+            )
+
+    shipment = update_shipment(
+        shipment_id,
+        status=request.status,
+        notes=request.notes,
+    )
+
+    if shipment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment not found.",
+        )
+
+    return {
+        "message": "Shipment updated successfully.",
+        "shipment": shipment,
+    }
+
+
+@app.delete(
+    "/api/logistics/shipments/{shipment_id}"
+)
+def delete_existing_shipment(
+    shipment_id: str,
+):
+    deleted = delete_shipment(
+        shipment_id
+    )
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Shipment not found.",
+        )
+
+    return {
+        "message": "Shipment deleted successfully.",
+        "shipment_id": shipment_id,
+    }
 # ============================================================
 # RUN DIRECTLY
 # ============================================================

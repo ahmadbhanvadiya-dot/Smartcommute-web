@@ -71,7 +71,7 @@ export default function LogisticsDashboardPage() {
   );
 
   return (
-    <main className="min-h-screen bg-slate-50 lg:ml-64">
+    <main className="min-h-screen bg-slate-50 pt-16 lg:ml-64 lg:pt-0">
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
 
         {/* Header */}

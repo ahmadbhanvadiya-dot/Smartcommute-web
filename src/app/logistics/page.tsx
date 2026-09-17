@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   BarChart3,
   CheckCircle2,
@@ -95,21 +96,35 @@ export default function LogisticsDashboardPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 shadow-sm">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
-              <Zap className="h-5 w-5 text-emerald-600" />
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
 
-            <div>
-              <p className="text-sm font-bold text-slate-800">
-                Route Optimizer
-              </p>
+            {/* Back to onboarding */}
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to Start
+            </Link>
 
-              <div className="flex items-center gap-1.5 text-xs text-emerald-600">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Online
+            {/* Route Optimizer status */}
+            <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 shadow-sm">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+                <Zap className="h-5 w-5 text-emerald-600" />
+              </div>
+
+              <div>
+                <p className="text-sm font-bold text-slate-800">
+                  Route Optimizer
+                </p>
+
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  Online
+                </div>
               </div>
             </div>
+
           </div>
         </div>
 

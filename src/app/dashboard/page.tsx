@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 
 import {
   Activity,
@@ -500,21 +502,31 @@ export default function DashboardPage() {
           {/* HEADER */}
           {/* ================================================= */}
 
-          <div className="mb-7">
+          <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 
-            <p className="text-sm font-medium text-blue-600">
-              SmartCommute AI
-            </p>
+  <div>
+    <p className="text-sm font-medium text-blue-600">
+      SmartCommute AI
+    </p>
 
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Smart Route Dashboard
-            </h1>
+    <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+      Smart Route Dashboard
+    </h1>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Find upcoming TGSRTC buses using real GTFS schedule data.
-            </p>
+    <p className="mt-1 text-sm text-slate-500">
+      Find upcoming TGSRTC buses using real GTFS schedule data.
+    </p>
+  </div>
 
-          </div>
+  <Link
+    href="/"
+    className="inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900"
+  >
+    <ArrowLeft className="h-3.5 w-3.5" />
+    Back to Start
+  </Link>
+
+</div>
 
           {/* ================================================= */}
           {/* SEARCH */}

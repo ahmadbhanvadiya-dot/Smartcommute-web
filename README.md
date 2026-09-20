@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🚍 SmartCommute AI
 
-## Getting Started
+SmartCommute AI is an intelligent transportation platform designed for **commuters and logistics operations**. It combines real transportation data, geospatial search, route optimization, and logistics intelligence in one platform.
 
-First, run the development server:
+## ✨ Features
 
-```bash
+### 🚌 Commuter
+- TGSRTC GTFS-based bus route planning
+- Real location search using OpenStreetMap
+- Direct and transfer route detection
+- Walking, waiting, and journey-time analysis
+- Smart route recommendations
+
+### 🚚 Logistics
+- Freight route optimization
+- Vehicle capacity management
+- Fuel and driver cost estimation
+- Shipment management
+- Alternative road routes
+- Route visualization
+
+## 🛠️ Tech Stack
+
+- **Frontend:** Next.js, React, TypeScript, Tailwind CSS
+- **Backend:** FastAPI, Python
+- **Transport Data:** TGSRTC GTFS
+- **Maps:** Leaflet / React Leaflet
+- **Location Search:** OpenStreetMap / Nominatim
+- **Road Routing:** OSRM
+
+## 📊 Architecture
+
+```text
+              SmartCommute AI
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+      🚌 Commuter         🚚 Logistics
+          │                   │
+      GTFS Routing       Road Routing
+          │                   │
+      Route Search       Cost Analysis
+          │                   │
+          └─────────┬─────────┘
+                    │
+              FastAPI Backend
+                    │
+          ┌─────────┼─────────┐
+          │         │         │
+         GTFS    OSM/Nominatim OSRM
+🚀 Run Locally
+Frontend
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Create .env.local:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+Backend
+cd smartcommute-api
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+pip install -r requirements.txt
 
-## Learn More
+uvicorn main:app --reload
 
-To learn more about Next.js, take a look at the following resources:
+Frontend:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+http://localhost:3000
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Backend:
 
-## Deploy on Vercel
+http://127.0.0.1:8000
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+API documentation:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+http://127.0.0.1:8000/docs
+📌 Project Vision
+
+SmartCommute AI aims to create a unified mobility platform that makes public transportation and freight movement smarter, more efficient, and data-driven.

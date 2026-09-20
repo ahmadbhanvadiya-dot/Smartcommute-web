@@ -48,11 +48,14 @@ SmartCommute AI is an intelligent transportation platform designed for **commute
           ┌─────────┼─────────┐
           │         │         │
          GTFS    OSM/Nominatim OSRM
+```
 🚀 Run Locally
 Frontend
+```
 npm install
 npm run dev
-
+```
+```
 Create .env.local:
 
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
@@ -74,6 +77,7 @@ http://127.0.0.1:8000
 API documentation:
 
 http://127.0.0.1:8000/docs
+```
 📌 Project Vision
 
 SmartCommute AI aims to create a unified mobility platform that makes public transportation and freight movement smarter, more efficient, and data-driven.

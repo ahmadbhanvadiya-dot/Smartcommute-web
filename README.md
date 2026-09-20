@@ -1,6 +1,6 @@
 # 🚍 SmartCommute AI
 
-SmartCommute AI is an intelligent transportation platform designed for **commuters and logistics operations**. It combines real transportation data, geospatial search, route optimization, and logistics intelligence in one platform.
+SmartCommute AI is an intelligent transportation platform designed for **commuters and logistics operations**. It combines real transportation data, geospatial search, route optimization, and logistics intelligence in one platform reducing the **pressure on a transport network** and **logistics infrastructure**.
 
 ## ✨ Features
 
